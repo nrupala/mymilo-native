@@ -115,7 +115,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onResult(true, "Connected")
                 refreshFromServer()
             } catch (e: Exception) {
-                onResult(false, "Could not connect: ${e.message}")
+                val msg = e.message ?: ""
+                val friendly = when {
+                    msg.contains("malformed JSON", ignoreCase = true) ||
+                        msg.contains("JsonReader", ignoreCase = true) ->
+                        "That address returned a web page instead of API " +
+                            "data. Use the API address: " +
+                            "https://mymilo-api.aimlds.org"
+                    msg.contains("401") ->
+                        "Token not accepted. Register this device again " +
+                            "on the server's Devices page and paste the " +
+                            "new token."
+                    msg.contains("Unable to resolve host", ignoreCase = true) ->
+                        "Can't reach that address — check the URL and " +
+                            "your connection."
+                    else -> "Could not connect: $msg"
+                }
+                onResult(false, friendly)
             }
         }
     }

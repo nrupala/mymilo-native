@@ -99,7 +99,7 @@ class MiloApiClient(private val context: Context) {
     private suspend fun settings() = (context.applicationContext as org.aimlds.mymilo.MiloApp).db.settings()
 
     suspend fun serverUrl(): String =
-        settings().get("server_url") ?: "https://mymilo.aimlds.org"
+        settings().get("server_url") ?: "https://mymilo-api.aimlds.org"
 
     suspend fun token(): String = settings().get("device_token") ?: ""
 

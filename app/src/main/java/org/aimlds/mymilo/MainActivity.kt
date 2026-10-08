@@ -53,8 +53,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                MiloRoot()
+            // Proper dark theme: readable light text on dark surfaces.
+            MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
+                androidx.compose.material3.Surface(
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    MiloRoot()
+                }
             }
         }
     }
@@ -72,7 +77,7 @@ fun MiloRoot(vm: MainViewModel = viewModel()) {
 
 @Composable
 fun SetupScreen(vm: MainViewModel) {
-    var server by remember { mutableStateOf("https://mymilo.aimlds.org") }
+    var server by remember { mutableStateOf("https://mymilo-api.aimlds.org") }
     var token by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
