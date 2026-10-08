@@ -51,10 +51,11 @@ import org.aimlds.mymilo.ui.MainViewModel
 
 class MainActivity : ComponentActivity() {
 
-    private val vm: MainViewModel by androidx.activity.viewModels()
+    private lateinit var vm: MainViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        vm = androidx.lifecycle.ViewModelProvider(this)[MainViewModel::class.java]
         handleIntent(intent)
         setContent {
             val skin by vm.skin.collectAsState()
