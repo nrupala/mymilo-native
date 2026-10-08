@@ -98,8 +98,21 @@ class MiloApiClient(private val context: Context) {
 
     private suspend fun settings() = (context.applicationContext as org.aimlds.mymilo.MiloApp).db.settings()
 
-    suspend fun serverUrl(): String =
-        settings().get("server_url") ?: "https://mymilo-api.aimlds.org"
+    suspend fun serverUrl(): String {
+        val saved = settings().get("server_url")
+        if (saved == null) return "https://mymilo-api.aimlds.org"
+        // v0.3.0: migrate the old browser host (behind the Access
+        // sign-in wall) to the API host — build-1 installs saved the
+        // old address and would keep failing forever otherwise.
+        if (saved.trimEnd('/') == "https://mymilo.aimlds.org") {
+            settings().put(
+                SettingEntity("server_url", "https://mymilo-api.aimlds.org")
+            )
+            service = null
+            return "https://mymilo-api.aimlds.org"
+        }
+        return saved
+    }
 
     suspend fun token(): String = settings().get("device_token") ?: ""
 

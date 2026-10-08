@@ -52,14 +52,58 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _skillCount = MutableStateFlow(0)
     val skillCount: StateFlow<Int> = _skillCount
 
+    private val _skin = MutableStateFlow(Skin.MIDNIGHT)
+    val skin: StateFlow<Skin> = _skin
+
+    fun setSkin(s: Skin) {
+        _skin.value = s
+        viewModelScope.launch {
+            db.settings().put(org.aimlds.mymilo.data.SettingEntity("skin", s.name))
+        }
+    }
+
     init {
         viewModelScope.launch {
-            _connected.value = api.token().isNotBlank()
+            _skin.value = Skin.fromName(db.settings().get("skin"))
+            val hasToken = api.token().isNotBlank()
+            _connected.value = hasToken
             skills.loadFromDb()
             _skillCount.value = skills.count()
-            if (_connected.value) {
-                refreshFromServer()
+            if (hasToken) {
+                // v0.3.0: re-validate the saved token instead of
+                // pretending to be connected (build-1 trap). A 401
+                // means the token is dead -> back to setup. A network
+                // error keeps offline mode available.
+                try {
+                    api.service().clientConfig()
+                    refreshFromServer()
+                } catch (e: Exception) {
+                    if ((e as? retrofit2.HttpException)?.code() == 401) {
+                        api.clearToken()
+                        _connected.value = false
+                    }
+                }
             }
+        }
+    }
+
+    /** Plain-English version of a network failure. */
+    private fun friendlyError(e: Exception): String {
+        val msg = e.message ?: ""
+        return when {
+            msg.contains("malformed JSON", ignoreCase = true) ||
+                msg.contains("JsonReader", ignoreCase = true) ->
+                "That address returned a web page instead of API data. " +
+                    "Use the API address: https://mymilo-api.aimlds.org"
+            (e as? retrofit2.HttpException)?.code() == 401 ||
+                msg.contains("401") ->
+                "Token not accepted. Register this device again on " +
+                    "the server's Devices page and paste the new token."
+            msg.contains("Unable to resolve host", ignoreCase = true) ->
+                "Can't reach that address — check the URL and your connection."
+            msg.contains("timeout", ignoreCase = true) ->
+                "The server took too long to answer. Try again in a moment."
+            else -> msg.ifBlank { "Unknown error" }
         }
     }
 
@@ -115,23 +159,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onResult(true, "Connected")
                 refreshFromServer()
             } catch (e: Exception) {
-                val msg = e.message ?: ""
-                val friendly = when {
-                    msg.contains("malformed JSON", ignoreCase = true) ||
-                        msg.contains("JsonReader", ignoreCase = true) ->
-                        "That address returned a web page instead of API " +
-                            "data. Use the API address: " +
-                            "https://mymilo-api.aimlds.org"
-                    msg.contains("401") ->
-                        "Token not accepted. Register this device again " +
-                            "on the server's Devices page and paste the " +
-                            "new token."
-                    msg.contains("Unable to resolve host", ignoreCase = true) ->
-                        "Can't reach that address — check the URL and " +
-                            "your connection."
-                    else -> "Could not connect: $msg"
-                }
-                onResult(false, friendly)
+                onResult(false, "Could not connect: " + friendlyError(e))
             }
         }
     }
@@ -220,13 +248,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val reply = resp.choices?.firstOrNull()?.message?.content
                     ?: "(no reply)"
                 addAssistant(sid, reply, "server")
-                resp.active_skill?.let { _status.value = "Skill: $it" }
+                _status.value = resp.active_skill?.let { "Skill: $it" } ?: ""
             } catch (e: Exception) {
                 addAssistant(
                     sid,
-                    "Couldn't reach MyMilo: ${e.message}. Message kept locally.",
+                    "Couldn't reach MyMilo: ${friendlyError(e)} " +
+                        "Message kept locally.",
                     "error",
                 )
+                _status.value = ""
             }
         }
     }

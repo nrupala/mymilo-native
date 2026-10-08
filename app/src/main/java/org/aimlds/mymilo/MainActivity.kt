@@ -53,12 +53,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            // Proper dark theme: readable light text on dark surfaces.
-            MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
+            val vm: MainViewModel = viewModel()
+            val skin by vm.skin.collectAsState()
+            MaterialTheme(
+                colorScheme = skin.scheme(),
+                typography = org.aimlds.mymilo.ui.MiloTypography,
+            ) {
                 androidx.compose.material3.Surface(
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    MiloRoot()
+                    MiloRoot(vm)
                 }
             }
         }
@@ -86,11 +90,12 @@ fun SetupScreen(vm: MainViewModel) {
         modifier = Modifier.fillMaxSize().padding(24.dp),
     ) {
         Spacer(Modifier.height(48.dp))
-        Text("mymilo", fontSize = 34.sp, fontWeight = FontWeight.Bold)
+        Text("mymilo", style = MaterialTheme.typography.headlineMedium)
         Text(
             "Your personal AI assistant. Works offline for local tasks; " +
                 "goes to your MyMilo server for heavy models and search.",
-            color = Color.Gray,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
         OutlinedTextField(
@@ -134,6 +139,7 @@ fun ChatScreen(vm: MainViewModel) {
     val messages by vm.messages.collectAsState()
     val status by vm.status.collectAsState()
     val skillCount by vm.skillCount.collectAsState()
+    val skinState = vm.skin.collectAsState()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
@@ -174,6 +180,23 @@ fun ChatScreen(vm: MainViewModel) {
                                     .padding(vertical = 10.dp),
                             )
                         }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "Skin",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    org.aimlds.mymilo.ui.Skin.entries.forEach { s ->
+                        val current = skinState.value == s
+                        Text(
+                            (if (current) "● " else "○ ") + s.label,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { vm.setSkin(s) }
+                                .padding(vertical = 8.dp),
+                            color = if (current) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
                     }
                     Spacer(Modifier.height(16.dp))
                     TextButton(onClick = { vm.refreshFromServer() }) {
@@ -240,6 +263,7 @@ fun ChatScreen(vm: MainViewModel) {
 @Composable
 fun MessageBubble(m: MessageEntity) {
     val isUser = m.role == "user"
+    val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = if (isUser) androidx.compose.foundation.layout.Arrangement.End
@@ -248,13 +272,17 @@ fun MessageBubble(m: MessageEntity) {
         Box(
             modifier = Modifier
                 .background(
-                    if (isUser) Color(0xFF2456A6) else Color(0xFF1F2632),
+                    if (isUser) colors.primary else colors.surfaceVariant,
                     RoundedCornerShape(14.dp),
                 )
                 .padding(12.dp),
         ) {
             Column {
-                Text(m.content, color = Color(0xFFE8EDF4))
+                Text(
+                    m.content,
+                    color = if (isUser) colors.onPrimary else colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
                 val originLabel = when (m.origin) {
                     "local-tool" -> "on this phone"
                     "local-model" -> "on-device model"
@@ -263,7 +291,11 @@ fun MessageBubble(m: MessageEntity) {
                     else -> null
                 }
                 if (!isUser && originLabel != null) {
-                    Text(originLabel, color = Color.Gray, fontSize = 11.sp)
+                    Text(
+                        originLabel,
+                        color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
             }
         }

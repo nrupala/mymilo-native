@@ -42,4 +42,5 @@ gradle wrapper --gradle-version 8.7   # once
 
 - **Milestone 1:** native shell, Room DB, skill sync + local matching,
   local tools, server escalation, offline queue.
+- **v0.3.0:** skins (Midnight/Daylight/Ocean/Ember) + bundled Inter type, startup token re-validation, saved-address migration.
 - **Milestone 2 (next):** on-device LLM for offline answers.
