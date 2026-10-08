@@ -113,6 +113,62 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _partialText.value = ""
     }
 
+    // ── Auto-update (v0.5.0) ──────────────────────────────────
+    private val _updateInfo =
+        MutableStateFlow<org.aimlds.mymilo.update.UpdateInfo?>(null)
+    val updateInfo: StateFlow<org.aimlds.mymilo.update.UpdateInfo?> = _updateInfo
+
+    private val _updateStatus = MutableStateFlow("")
+    val updateStatus: StateFlow<String> = _updateStatus
+
+    private val _voiceAutoStart = MutableStateFlow(false)
+    val voiceAutoStart: StateFlow<Boolean> = _voiceAutoStart
+
+    fun requestVoiceAutoStart() {
+        _voiceAutoStart.value = true
+    }
+
+    fun consumeVoiceAutoStart() {
+        _voiceAutoStart.value = false
+    }
+
+    fun checkForUpdate(manual: Boolean = false) {
+        viewModelScope.launch {
+            if (manual) _updateStatus.value = "Checking for updates…"
+            val info = try {
+                org.aimlds.mymilo.update.UpdateChecker.check()
+            } catch (e: Exception) {
+                null
+            }
+            _updateInfo.value = info
+            _updateStatus.value = when {
+                info != null -> "Build ${info.releaseNumber} is available"
+                manual -> "You're on the latest build"
+                else -> _updateStatus.value
+            }
+            db.settings().put(
+                org.aimlds.mymilo.data.SettingEntity(
+                    "last_update_check",
+                    System.currentTimeMillis().toString(),
+                )
+            )
+        }
+    }
+
+    fun applyUpdate(context: android.content.Context) {
+        val info = _updateInfo.value ?: return
+        viewModelScope.launch {
+            _updateStatus.value = "Downloading build ${info.releaseNumber}…"
+            val file = org.aimlds.mymilo.update.UpdateChecker.download(context, info)
+            if (file != null) {
+                _updateStatus.value = ""
+                org.aimlds.mymilo.update.UpdateChecker.install(context, file)
+            } else {
+                _updateStatus.value = "Download failed — try again."
+            }
+        }
+    }
+
     override fun onCleared() {
         speech?.destroy()
         tts.shutdown()
@@ -123,6 +179,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _skin.value = Skin.fromName(db.settings().get("skin"))
             _ttsEnabled.value = db.settings().get("tts_enabled") != "false"
+            // v0.5.0: check for a newer build at most once a day.
+            val lastCheck = db.settings().get("last_update_check")
+                ?.toLongOrNull() ?: 0L
+            if (System.currentTimeMillis() - lastCheck > 24 * 3600 * 1000L) {
+                checkForUpdate()
+            }
             val hasToken = api.token().isNotBlank()
             _connected.value = hasToken
             skills.loadFromDb()

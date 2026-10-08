@@ -32,6 +32,8 @@ jobs:
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
+        env:
+          MYMILO_BUILD_NUMBER: ${{ github.run_number }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -51,9 +53,11 @@ jobs:
 
             Offline-first: local database, on-device skill matching,
             local tools; escalates to your MyMilo server for heavy
-            models and search.
+            models and search. Voice in/out with the phone's own
+            speech engines; can serve as the device assistant;
+            checks here for its own updates.
 
             Install: download app-debug.apk, open it on your phone,
             allow "install unknown apps" if prompted. First run:
             paste your device token (register on the server's
-            Devices page).
+            Devices page). Later builds arrive via in-app update.

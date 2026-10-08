@@ -44,3 +44,17 @@ gradle wrapper --gradle-version 8.7   # once
   local tools, server escalation, offline queue.
 - **v0.3.0:** skins (Midnight/Daylight/Ocean/Ember) + bundled Inter type, startup token re-validation, saved-address migration.
 - **Milestone 2 (next):** on-device LLM for offline answers.
+
+## v0.4.0 — voice loop
+- Mic button: dictate a prompt (phone's speech recognition), auto-sends.
+- Replies read aloud by the phone's own TTS engine (toggle in top bar, on by default).
+
+## v0.5.0 — assistant role + auto-update
+- **Assistant:** pick MyMilo in the drawer ("Make Milo your assistant") or
+  Android's default-apps settings; the assistant gesture then opens a Milo
+  overlay that listens, answers, and speaks. Honest limits: no always-on
+  wake word (Android reserves hotword for the system assistant).
+- **Ask-Milo shortcut:** long-press the app icon → voice prompt.
+- **Auto-update:** the app checks GitHub releases daily (and on demand in
+  the drawer), downloads newer builds, and hands them to the system
+  installer — one tap to apply.

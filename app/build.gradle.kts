@@ -11,8 +11,13 @@ plugins {
         applicationId = "org.aimlds.mymilo"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.4.0"
+        // CI passes the workflow run number; versionCode = 500 + N so
+        // every published build upgrades cleanly and the app can map
+        // its versionCode back to the GitHub release number (build-N).
+        val buildNumber = System.getenv("MYMILO_BUILD_NUMBER")?.toIntOrNull() ?: 0
+        versionCode = 500 + buildNumber
+        buildConfigField("int", "BUILD_NUMBER", "${500 + buildNumber}")
+        versionName = "0.5.0"
     }
 
     buildTypes {
@@ -34,6 +39,7 @@ plugins {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -47,6 +53,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+    implementation("androidx.savedstate:savedstate-ktx:1.2.1")
 
     // Local database (sessions, messages, skills cache, facts)
     implementation("androidx.room:room-runtime:2.6.1")

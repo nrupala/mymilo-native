@@ -50,10 +50,13 @@ import org.aimlds.mymilo.data.MessageEntity
 import org.aimlds.mymilo.ui.MainViewModel
 
 class MainActivity : ComponentActivity() {
+
+    private val vm: MainViewModel by androidx.activity.viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
         setContent {
-            val vm: MainViewModel = viewModel()
             val skin by vm.skin.collectAsState()
             MaterialTheme(
                 colorScheme = skin.scheme(),
@@ -65,6 +68,17 @@ class MainActivity : ComponentActivity() {
                     MiloRoot(vm)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: android.content.Intent?) {
+        if (intent?.action == "org.aimlds.mymilo.action.VOICE_ASK") {
+            vm.requestVoiceAutoStart()
         }
     }
 }
@@ -144,6 +158,55 @@ fun ChatScreen(vm: MainViewModel) {
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Voice start (shared by the mic button and the Ask-Milo shortcut).
+    val permLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) vm.startDictation() }
+    fun startVoice() {
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) vm.startDictation()
+        else permLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+    }
+
+    val voiceAuto by vm.voiceAutoStart.collectAsState()
+    LaunchedEffect(voiceAuto) {
+        if (voiceAuto) {
+            vm.consumeVoiceAutoStart()
+            startVoice()
+        }
+    }
+
+    // Auto-update prompt.
+    val update by vm.updateInfo.collectAsState()
+    var dismissedUpdate by remember { mutableStateOf(-1) }
+    val pendingUpdate = update
+    if (pendingUpdate != null && pendingUpdate.releaseNumber != dismissedUpdate) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { dismissedUpdate = pendingUpdate.releaseNumber },
+            title = { Text("Update available") },
+            text = {
+                Text(
+                    "MyMilo build ${pendingUpdate.releaseNumber} is ready. " +
+                        pendingUpdate.notes.take(240),
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    dismissedUpdate = pendingUpdate.releaseNumber
+                    vm.applyUpdate(context)
+                }) { Text("Update now") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    dismissedUpdate = pendingUpdate.releaseNumber
+                }) { Text("Later") }
+            },
+        )
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -202,6 +265,60 @@ fun ChatScreen(vm: MainViewModel) {
                     TextButton(onClick = { vm.refreshFromServer() }) {
                         Text("Sync now")
                     }
+                    val roleLauncher = androidx.activity.compose
+                        .rememberLauncherForActivityResult(
+                            androidx.activity.result.contract
+                                .ActivityResultContracts.StartActivityForResult()
+                        ) {}
+                    TextButton(onClick = {
+                        val rm = context.getSystemService(
+                            android.app.role.RoleManager::class.java
+                        )
+                        if (rm != null &&
+                            rm.isRoleAvailable(
+                                android.app.role.RoleManager.ROLE_ASSISTANT
+                            ) &&
+                            !rm.isRoleHeld(
+                                android.app.role.RoleManager.ROLE_ASSISTANT
+                            )
+                        ) {
+                            roleLauncher.launch(
+                                rm.createRequestRoleIntent(
+                                    android.app.role.RoleManager.ROLE_ASSISTANT
+                                )
+                            )
+                        } else {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings
+                                        .ACTION_VOICE_INPUT_SETTINGS
+                                )
+                            )
+                        }
+                    }) {
+                        Text("Make Milo your assistant")
+                    }
+                    TextButton(onClick = { vm.checkForUpdate(manual = true) }) {
+                        Text("Check for updates")
+                    }
+                    val updStatus by vm.updateStatus.collectAsState()
+                    if (updStatus.isNotEmpty()) {
+                        Text(
+                            updStatus,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
+                    Text(
+                        "MyMilo v" + org.aimlds.mymilo.BuildConfig.VERSION_NAME +
+                            " · build " +
+                            org.aimlds.mymilo.update.UpdateChecker
+                                .currentReleaseNumber(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
                     TextButton(onClick = { vm.disconnect() }) {
                         Text("Disconnect device", color = Color(0xFFFF5D5D))
                     }
@@ -247,30 +364,15 @@ fun ChatScreen(vm: MainViewModel) {
                         modifier = Modifier.fillMaxWidth().padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val context = androidx.compose.ui.platform.LocalContext.current
-                        val permLauncher = androidx.activity.compose
-                            .rememberLauncherForActivityResult(
-                                androidx.activity.result.contract
-                                    .ActivityResultContracts.RequestPermission()
-                            ) { granted -> if (granted) vm.startDictation() }
+                        val listeningNow2 = listeningNow
                         Button(
                             onClick = {
-                                val granted = androidx.core.content.ContextCompat
-                                    .checkSelfPermission(
-                                        context, android.Manifest.permission.RECORD_AUDIO
-                                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                if (granted) {
-                                    if (listeningNow) vm.stopDictation()
-                                    else vm.startDictation()
-                                } else {
-                                    permLauncher.launch(
-                                        android.Manifest.permission.RECORD_AUDIO
-                                    )
-                                }
+                                if (listeningNow2) vm.stopDictation()
+                                else startVoice()
                             },
                             colors = androidx.compose.material3.ButtonDefaults
                                 .buttonColors(
-                                    containerColor = if (listeningNow)
+                                    containerColor = if (listeningNow2)
                                         MaterialTheme.colorScheme.error
                                     else MaterialTheme.colorScheme.secondary,
                                 ),

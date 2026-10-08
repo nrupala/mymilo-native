@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_voice_short">Ask Milo</string>
+    <string name="shortcut_voice_long">Ask Milo by voice</string>
+    <color name="ic_bg">#171C24</color>
+</resources>
