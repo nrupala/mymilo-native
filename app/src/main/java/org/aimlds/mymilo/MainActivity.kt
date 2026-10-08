@@ -218,11 +218,26 @@ fun ChatScreen(vm: MainViewModel) {
                             Text("☰", fontSize = 20.sp)
                         }
                     },
+                    actions = {
+                        val ttsOn by vm.ttsEnabled.collectAsState()
+                        TextButton(onClick = { vm.setTtsEnabled(!ttsOn) }) {
+                            Text(if (ttsOn) "🔊" else "🔇", fontSize = 18.sp)
+                        }
+                    },
                 )
             },
             bottomBar = {
                 Column {
-                    if (status.isNotEmpty()) {
+                    val listeningNow by vm.listening.collectAsState()
+                    val partial by vm.partialText.collectAsState()
+                    if (listeningNow) {
+                        Text(
+                            "🎙 Listening… " + partial,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        )
+                    } else if (status.isNotEmpty()) {
                         Text(
                             status, color = Color.Gray, fontSize = 12.sp,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
@@ -232,6 +247,35 @@ fun ChatScreen(vm: MainViewModel) {
                         modifier = Modifier.fillMaxWidth().padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val permLauncher = androidx.activity.compose
+                            .rememberLauncherForActivityResult(
+                                androidx.activity.result.contract
+                                    .ActivityResultContracts.RequestPermission()
+                            ) { granted -> if (granted) vm.startDictation() }
+                        Button(
+                            onClick = {
+                                val granted = androidx.core.content.ContextCompat
+                                    .checkSelfPermission(
+                                        context, android.Manifest.permission.RECORD_AUDIO
+                                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (granted) {
+                                    if (listeningNow) vm.stopDictation()
+                                    else vm.startDictation()
+                                } else {
+                                    permLauncher.launch(
+                                        android.Manifest.permission.RECORD_AUDIO
+                                    )
+                                }
+                            },
+                            colors = androidx.compose.material3.ButtonDefaults
+                                .buttonColors(
+                                    containerColor = if (listeningNow)
+                                        MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.secondary,
+                                ),
+                        ) { Text("🎤") }
+                        Spacer(Modifier.width(8.dp))
                         OutlinedTextField(
                             value = input, onValueChange = { input = it },
                             placeholder = { Text("Message Milo…") },

@@ -62,9 +62,67 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── Voice (v0.4.0): phone-native TTS out + speech in ──────
+    private val tts = org.aimlds.mymilo.voice.TtsPlayer(app)
+
+    private val _ttsEnabled = MutableStateFlow(true)
+    val ttsEnabled: StateFlow<Boolean> = _ttsEnabled
+
+    private val _listening = MutableStateFlow(false)
+    val listening: StateFlow<Boolean> = _listening
+
+    private val _partialText = MutableStateFlow("")
+    val partialText: StateFlow<String> = _partialText
+
+    private var speech: org.aimlds.mymilo.voice.SpeechInput? = null
+
+    fun setTtsEnabled(on: Boolean) {
+        _ttsEnabled.value = on
+        if (!on) tts.stop()
+        viewModelScope.launch {
+            db.settings().put(
+                org.aimlds.mymilo.data.SettingEntity(
+                    "tts_enabled", if (on) "true" else "false"
+                )
+            )
+        }
+    }
+
+    fun startDictation() {
+        if (_listening.value) return
+        tts.stop()
+        _listening.value = true
+        _partialText.value = ""
+        speech = org.aimlds.mymilo.voice.SpeechInput(
+            context = getApplication(),
+            onPartial = { _partialText.value = it },
+            onFinal = { text -> send(text) },
+            onError = { msg -> _status.value = msg },
+            onEnd = {
+                _listening.value = false
+                _partialText.value = ""
+            },
+        )
+        speech?.start()
+    }
+
+    fun stopDictation() {
+        speech?.destroy()
+        speech = null
+        _listening.value = false
+        _partialText.value = ""
+    }
+
+    override fun onCleared() {
+        speech?.destroy()
+        tts.shutdown()
+        super.onCleared()
+    }
+
     init {
         viewModelScope.launch {
             _skin.value = Skin.fromName(db.settings().get("skin"))
+            _ttsEnabled.value = db.settings().get("tts_enabled") != "false"
             val hasToken = api.token().isNotBlank()
             _connected.value = hasToken
             skills.loadFromDb()
@@ -186,6 +244,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun send(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+        tts.stop() // a new message interrupts any read-aloud
         viewModelScope.launch {
             // Ensure a session exists (created locally, works offline)
             var sid = _currentSessionId.value
@@ -271,6 +330,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 origin = origin,
             )
         )
+        // v0.4.0: read real replies aloud with the phone's own TTS.
+        if (_ttsEnabled.value &&
+            (origin == "server" || origin == "local-tool" || origin == "local-model")
+        ) {
+            tts.speak(content)
+        }
         db.sessions().upsert(
             (db.sessions().get(sid) ?: return).copy(updatedAt = System.currentTimeMillis())
         )
