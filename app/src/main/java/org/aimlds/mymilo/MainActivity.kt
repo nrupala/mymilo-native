@@ -266,38 +266,128 @@ fun ChatScreen(vm: MainViewModel) {
                     TextButton(onClick = { vm.refreshFromServer() }) {
                         Text("Sync now")
                     }
+                    var assistantStatus by remember { mutableStateOf("") }
+                    // The reliable route on every OEM skin: Android's
+                    // own assistant-settings screen, where MyMilo is
+                    // listed because its VoiceInteractionService is
+                    // valid. Try the specific screen, then the main
+                    // Settings screen; always tell the user the path.
+                    val openAssistantSettings = {
+                        val actions = listOf(
+                            android.provider.Settings
+                                .ACTION_VOICE_INPUT_SETTINGS,
+                            android.provider.Settings.ACTION_SETTINGS,
+                        )
+                        var opened = false
+                        for (action in actions) {
+                            try {
+                                context.startActivity(
+                                    android.content.Intent(action)
+                                )
+                                opened = true
+                                break
+                            } catch (e: Exception) {
+                                // fall through to the next screen
+                            }
+                        }
+                        assistantStatus = if (opened) {
+                            "In Settings: Default apps → Digital " +
+                                "assistant app → MyMilo."
+                        } else {
+                            "Couldn't open Settings automatically. Go " +
+                                "to Settings → Apps → Default apps → " +
+                                "Digital assistant app → MyMilo."
+                        }
+                    }
                     val roleLauncher = androidx.activity.compose
                         .rememberLauncherForActivityResult(
                             androidx.activity.result.contract
                                 .ActivityResultContracts.StartActivityForResult()
-                        ) {}
+                        ) { result ->
+                            val rm = context.getSystemService(
+                                android.app.role.RoleManager::class.java
+                            )
+                            assistantStatus = when {
+                                rm != null &&
+                                    rm.isRoleHeld(
+                                        android.app.role.RoleManager
+                                            .ROLE_ASSISTANT
+                                    ) ->
+                                    "Milo is your assistant ✓ Long-press " +
+                                        "Home or swipe up from a bottom " +
+                                        "corner to talk to Milo."
+
+                                result.resultCode ==
+                                    android.app.Activity.RESULT_OK ->
+                                    "Done — Milo is set as your assistant."
+
+                                else ->
+                                    "Not set yet. Tap Assistant settings " +
+                                        "below, choose Digital assistant " +
+                                        "app, then MyMilo."
+                            }
+                        }
                     TextButton(onClick = {
-                        val rm = context.getSystemService(
-                            android.app.role.RoleManager::class.java
-                        )
-                        if (rm != null &&
-                            rm.isRoleAvailable(
-                                android.app.role.RoleManager.ROLE_ASSISTANT
-                            ) &&
-                            !rm.isRoleHeld(
-                                android.app.role.RoleManager.ROLE_ASSISTANT
+                        // A tap must never be silent (build-7 bug: the
+                        // role path could no-op with zero feedback).
+                        android.widget.Toast.makeText(
+                            context,
+                            "Assistant setup…",
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                        try {
+                            val rm = context.getSystemService(
+                                android.app.role.RoleManager::class.java
                             )
-                        ) {
-                            roleLauncher.launch(
-                                rm.createRequestRoleIntent(
-                                    android.app.role.RoleManager.ROLE_ASSISTANT
-                                )
-                            )
-                        } else {
-                            context.startActivity(
-                                android.content.Intent(
-                                    android.provider.Settings
-                                        .ACTION_VOICE_INPUT_SETTINGS
-                                )
-                            )
+                            when {
+                                rm != null &&
+                                    rm.isRoleHeld(
+                                        android.app.role.RoleManager
+                                            .ROLE_ASSISTANT
+                                    ) ->
+                                    assistantStatus =
+                                        "Milo is already your " +
+                                            "assistant ✓ Long-press Home " +
+                                            "or swipe up from a bottom " +
+                                            "corner to talk."
+
+                                rm != null &&
+                                    rm.isRoleAvailable(
+                                        android.app.role.RoleManager
+                                            .ROLE_ASSISTANT
+                                    ) -> {
+                                    roleLauncher.launch(
+                                        rm.createRequestRoleIntent(
+                                            android.app.role.RoleManager
+                                                .ROLE_ASSISTANT
+                                        )
+                                    )
+                                    assistantStatus =
+                                        "Confirm in the system dialog " +
+                                            "to finish."
+                                }
+
+                                else -> openAssistantSettings()
+                            }
+                        } catch (e: Exception) {
+                            assistantStatus =
+                                "The system dialog didn't open — " +
+                                    "use Assistant settings below."
+                            openAssistantSettings()
                         }
                     }) {
                         Text("Make Milo your assistant")
+                    }
+                    TextButton(onClick = { openAssistantSettings() }) {
+                        Text("Assistant settings")
+                    }
+                    if (assistantStatus.isNotEmpty()) {
+                        Text(
+                            assistantStatus,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
                     }
                     TextButton(onClick = { vm.checkForUpdate(manual = true) }) {
                         Text("Check for updates")

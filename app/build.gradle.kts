@@ -17,7 +17,7 @@ plugins {
         val buildNumber = System.getenv("MYMILO_BUILD_NUMBER")?.toIntOrNull() ?: 0
         versionCode = 500 + buildNumber
         buildConfigField("int", "BUILD_NUMBER", "${500 + buildNumber}")
-        versionName = "0.5.0"
+        versionName = "0.5.1"
     }
 
     buildTypes {
