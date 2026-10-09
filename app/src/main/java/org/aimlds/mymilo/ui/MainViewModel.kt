@@ -135,9 +135,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _thinking = MutableStateFlow(false)
     val thinking: StateFlow<Boolean> = _thinking
 
-    /** The open session's id, for the drawer's active-thread marker. */
-    val currentSessionId: StateFlow<String?> = _currentSessionId
-
     /** Parse a message's stored sources JSON ("" when none). */
     fun parseSources(json: String): List<org.aimlds.mymilo.network.SourceDto> {
         if (json.isBlank()) return emptyList()
