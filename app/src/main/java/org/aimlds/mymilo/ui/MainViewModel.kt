@@ -454,7 +454,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 api.setServerAndToken(serverUrl.trim().trimEnd('/'), token.trim())
-                api.service().clientConfig() // validates the token
+                val cfg = api.service().clientConfig() // validates the token
+                _supportUrl.value = cfg.support_url ?: ""
                 _connected.value = true
                 onResult(true, "Connected")
                 refreshFromServer()

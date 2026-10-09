@@ -41,6 +41,9 @@ private fun SubScreen(
     vm: MainViewModel,
     content: @Composable () -> Unit,
 ) {
+    // Assessment F2: the system Back button returns to chat
+    // instead of leaving the app from a sub-screen.
+    androidx.activity.compose.BackHandler { vm.showScreen("chat") }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { vm.showScreen("chat") }) {
