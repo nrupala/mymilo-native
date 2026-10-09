@@ -205,7 +205,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val file = org.aimlds.mymilo.update.UpdateChecker.download(context, info)
             if (file != null) {
                 markDownloaded(info.releaseNumber, file)
-                org.aimlds.mymilo.update.UpdateChecker.install(context, file)
+                if (!org.aimlds.mymilo.update.UpdateChecker
+                        .install(context, file)
+                ) {
+                    _updateStatus.value =
+                        "Downloaded, but the installer couldn't open. " +
+                            "Tap Install build ${info.releaseNumber} " +
+                            "in the drawer to try again."
+                }
             } else {
                 _updateStatus.value = "Download failed — try again."
             }
@@ -234,7 +241,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .downloadedFile(context, n)
         if (file != null) {
             _updateStatus.value = ""
-            org.aimlds.mymilo.update.UpdateChecker.install(context, file)
+            if (!org.aimlds.mymilo.update.UpdateChecker
+                    .install(context, file)
+            ) {
+                _updateStatus.value =
+                    "Couldn't open the installer — tap Install " +
+                        "again to retry."
+            }
         } else {
             clearDownloaded()
             _updateStatus.value =

@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="updates" path="updates/" />
+    <!-- Build 14 fix: downloads live in filesDir/updates since the
+         build-10 persistence fix, but only the cache root was ever
+         declared — getUriForFile threw for every downloaded update
+         and Install died with a "configured root" (cache) error. -->
+    <files-path name="updates_files" path="updates/" />
 </paths>
