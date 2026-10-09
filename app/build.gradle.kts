@@ -17,12 +17,32 @@ plugins {
         val buildNumber = System.getenv("MYMILO_BUILD_NUMBER")?.toIntOrNull() ?: 0
         versionCode = 500 + buildNumber
         buildConfigField("int", "BUILD_NUMBER", "${500 + buildNumber}")
-        versionName = "0.5.2"
+        versionName = "0.6.0"
+    }
+
+    // Release signing (v0.6.0): the keystore is provided by CI from
+    // repository secrets (never committed). Without the env vars the
+    // release build is unsigned and CI fails at packaging — by design.
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("MYMILO_KEYSTORE")
+            if (ksPath != null) {
+                storeFile = file(ksPath)
+                storeType = "PKCS12"
+                storePassword = System.getenv("MYMILO_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MYMILO_KEY_ALIAS")
+                keyPassword = System.getenv("MYMILO_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            if (System.getenv("MYMILO_KEYSTORE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -56,7 +56,7 @@ object UpdateChecker {
             var apkUrl: String? = null
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)
-                if (a.optString("name") == "app-debug.apk") {
+                if (a.optString("name") == "app-release.apk") {
                     apkUrl = a.optString("browser_download_url")
                     break
                 }
@@ -72,8 +72,12 @@ object UpdateChecker {
 
     suspend fun download(context: Context, info: UpdateInfo): File? =
         withContext(Dispatchers.IO) {
-            val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-            val out = File(dir, "mymilo-update.apk")
+            // Persistent app storage (filesDir), NOT cacheDir: a
+            // downloaded update must survive until the user chooses
+            // to install it (build-10 fix — updates used to strand
+            // in the cache with no way back to them).
+            val dir = File(context.filesDir, "updates").apply { mkdirs() }
+            val out = File(dir, "mymilo-build${info.releaseNumber}.apk")
             val client = OkHttpClient()
             val req = Request.Builder()
                 .url(info.apkUrl)
@@ -90,6 +94,15 @@ object UpdateChecker {
                 null
             }
         }
+
+    /** The downloaded APK for a build, if it is still on disk. */
+    fun downloadedFile(context: Context, releaseNumber: Int): File? {
+        val f = File(
+            File(context.filesDir, "updates"),
+            "mymilo-build$releaseNumber.apk",
+        )
+        return if (f.exists() && f.length() > 1_000_000) f else null
+    }
 
     /** Open the system installer (or the allow-installs settings first). */
     fun install(context: Context, file: File) {

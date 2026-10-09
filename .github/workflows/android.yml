@@ -30,16 +30,28 @@ jobs:
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.7
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      # Release signing key (v0.6.0): stored as repository secrets,
+      # decoded to a temp file for this job only, never logged.
+      - name: Decode release keystore
+        run: |
+          echo "${{ secrets.MYMILO_KEYSTORE_BASE64 }}" | base64 -d \
+            > "$RUNNER_TEMP/mymilo-release.p12"
+          test -s "$RUNNER_TEMP/mymilo-release.p12"
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --stacktrace
         env:
           MYMILO_BUILD_NUMBER: ${{ github.run_number }}
+          MYMILO_KEYSTORE: ${{ runner.temp }}/mymilo-release.p12
+          MYMILO_KEYSTORE_PASSWORD: ${{ secrets.MYMILO_KEYSTORE_PASSWORD }}
+          MYMILO_KEY_ALIAS: mymilo
+          MYMILO_KEY_PASSWORD: ${{ secrets.MYMILO_KEYSTORE_PASSWORD }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mymilo-native-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: mymilo-native-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
 
       - name: Create Release with APK
         if: github.ref == 'refs/heads/main'
@@ -47,17 +59,22 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: MyMilo Native build ${{ github.run_number }}
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: app/build/outputs/apk/release/app-release.apk
           body: |
-            MyMilo native Android app (debug build for sideloading).
+            MyMilo native Android app — RELEASE build, signed with the
+            MyMilo release key (SHA-256 31:B7:29:2C:71:F4:2A:1A:B6:D6:
+            61:EB:B4:F9:BD:87:F9:B2:1E:3C:62:37:B1:43:AE:FC:47:12:3B:
+            13:F9:FE).
+
+            IMPORTANT — build 10 is the first release-signed build:
+            Android will NOT install it over the earlier debug builds
+            (different signature). Uninstall the old MyMilo first,
+            then install this one, then paste your device token once
+            more. From build 10 on, updates install in place.
 
             Offline-first: local database, on-device skill matching,
             local tools; escalates to your MyMilo server for heavy
             models and search. Voice in/out with the phone's own
-            speech engines; can serve as the device assistant;
-            checks here for its own updates.
-
-            Install: download app-debug.apk, open it on your phone,
-            allow "install unknown apps" if prompted. First run:
-            paste your device token (register on the server's
-            Devices page). Later builds arrive via in-app update.
+            speech engines; can serve as the device assistant; the
+            in-app Updates section downloads new builds and keeps the
+            Install button until you use it.

@@ -5,10 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -217,7 +220,7 @@ fun ChatScreen(vm: MainViewModel) {
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
-                Column(Modifier.padding(16.dp)) {
+                Column(Modifier.fillMaxHeight().padding(16.dp)) {
                     Button(
                         onClick = {
                             vm.newSession()
@@ -231,7 +234,10 @@ fun ChatScreen(vm: MainViewModel) {
                         color = Color.Gray, fontSize = 13.sp,
                     )
                     Spacer(Modifier.height(8.dp))
-                    LazyColumn {
+                    // Bounded + scrollable (build-10 fix: an unbounded
+                    // LazyColumn in a plain Column ate the drawer and
+                    // pushed every control below off-screen).
+                    LazyColumn(Modifier.weight(1f)) {
                         items(sessions) { s ->
                             Text(
                                 s.title,
@@ -250,17 +256,26 @@ fun ChatScreen(vm: MainViewModel) {
                         "Skin",
                         style = MaterialTheme.typography.titleMedium,
                     )
-                    org.aimlds.mymilo.ui.Skin.entries.forEach { s ->
-                        val current = skinState.value == s
-                        Text(
-                            (if (current) "● " else "○ ") + s.label,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { vm.setSkin(s) }
-                                .padding(vertical = 8.dp),
-                            color = if (current) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                    ) {
+                        org.aimlds.mymilo.ui.Skin.entries.forEach { s ->
+                            val current = skinState.value == s
+                            Text(
+                                (if (current) "● " else "○ ") + s.label,
+                                modifier = Modifier
+                                    .clickable { vm.setSkin(s) }
+                                    .padding(
+                                        horizontal = 8.dp,
+                                        vertical = 8.dp,
+                                    ),
+                                color = if (current)
+                                    MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
                     Spacer(Modifier.height(16.dp))
                     TextButton(onClick = { vm.refreshFromServer() }) {
@@ -407,8 +422,37 @@ fun ChatScreen(vm: MainViewModel) {
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     }
-                    TextButton(onClick = { vm.checkForUpdate(manual = true) }) {
-                        Text("Check for updates")
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "Updates",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    val downloadedBuild by vm.downloadedBuild
+                        .collectAsState()
+                    Row {
+                        TextButton(
+                            onClick = { vm.checkForUpdate(manual = true) }
+                        ) {
+                            Text("Check")
+                        }
+                        val avail = update
+                        if (avail != null &&
+                            downloadedBuild != avail.releaseNumber
+                        ) {
+                            TextButton(
+                                onClick = { vm.downloadUpdate(context) }
+                            ) {
+                                Text("Download build ${avail.releaseNumber}")
+                            }
+                        }
+                        val dl = downloadedBuild
+                        if (dl != null) {
+                            Button(
+                                onClick = { vm.installDownloaded(context) }
+                            ) {
+                                Text("Install build $dl")
+                            }
+                        }
                     }
                     val updStatus by vm.updateStatus.collectAsState()
                     if (updStatus.isNotEmpty()) {

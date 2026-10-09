@@ -121,6 +121,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _updateStatus = MutableStateFlow("")
     val updateStatus: StateFlow<String> = _updateStatus
 
+    // A downloaded-but-not-yet-installed update (build 10): persists
+    // across restarts until installed or superseded, so the Install
+    // action is always reachable from the drawer's Updates section.
+    private val _downloadedBuild = MutableStateFlow<Int?>(null)
+    val downloadedBuild: StateFlow<Int?> = _downloadedBuild
+
     private val _voiceAutoStart = MutableStateFlow(false)
     val voiceAutoStart: StateFlow<Boolean> = _voiceAutoStart
 
@@ -157,16 +163,75 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun applyUpdate(context: android.content.Context) {
         val info = _updateInfo.value ?: return
+        // Already downloaded? Install it directly.
+        if (_downloadedBuild.value == info.releaseNumber) {
+            installDownloaded(context)
+            return
+        }
         viewModelScope.launch {
             _updateStatus.value = "Downloading build ${info.releaseNumber}…"
             val file = org.aimlds.mymilo.update.UpdateChecker.download(context, info)
             if (file != null) {
-                _updateStatus.value = ""
+                markDownloaded(info.releaseNumber, file)
                 org.aimlds.mymilo.update.UpdateChecker.install(context, file)
             } else {
                 _updateStatus.value = "Download failed — try again."
             }
         }
+    }
+
+    fun downloadUpdate(context: android.content.Context) {
+        val info = _updateInfo.value ?: return
+        viewModelScope.launch {
+            _updateStatus.value = "Downloading build ${info.releaseNumber}…"
+            val file = org.aimlds.mymilo.update.UpdateChecker.download(context, info)
+            if (file != null) {
+                markDownloaded(info.releaseNumber, file)
+                _updateStatus.value =
+                    "Build ${info.releaseNumber} downloaded — " +
+                        "tap Install whenever you're ready."
+            } else {
+                _updateStatus.value = "Download failed — try again."
+            }
+        }
+    }
+
+    fun installDownloaded(context: android.content.Context) {
+        val n = _downloadedBuild.value ?: return
+        val file = org.aimlds.mymilo.update.UpdateChecker
+            .downloadedFile(context, n)
+        if (file != null) {
+            _updateStatus.value = ""
+            org.aimlds.mymilo.update.UpdateChecker.install(context, file)
+        } else {
+            clearDownloaded()
+            _updateStatus.value =
+                "The downloaded file is gone — download it again."
+        }
+    }
+
+    private fun markDownloaded(n: Int, file: java.io.File) {
+        _downloadedBuild.value = n
+        db.settings().put(
+            org.aimlds.mymilo.data.SettingEntity(
+                "update_downloaded_build", n.toString()
+            )
+        )
+        db.settings().put(
+            org.aimlds.mymilo.data.SettingEntity(
+                "update_apk_path", file.absolutePath
+            )
+        )
+    }
+
+    private fun clearDownloaded() {
+        _downloadedBuild.value = null
+        db.settings().put(
+            org.aimlds.mymilo.data.SettingEntity("update_downloaded_build", "")
+        )
+        db.settings().put(
+            org.aimlds.mymilo.data.SettingEntity("update_apk_path", "")
+        )
     }
 
     override fun onCleared() {
@@ -184,6 +249,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ?.toLongOrNull() ?: 0L
             if (System.currentTimeMillis() - lastCheck > 24 * 3600 * 1000L) {
                 checkForUpdate()
+            }
+            // Reconcile a downloaded update from a previous run.
+            val dlBuild = db.settings().get("update_downloaded_build")
+                ?.toIntOrNull()
+            val dlPath = db.settings().get("update_apk_path")
+            when {
+                dlBuild == null -> {}
+                dlBuild <= org.aimlds.mymilo.update.UpdateChecker
+                    .currentReleaseNumber() -> clearDownloaded()
+
+                dlPath != null && java.io.File(dlPath).exists() -> {
+                    _downloadedBuild.value = dlBuild
+                    _updateStatus.value =
+                        "Build $dlBuild downloaded — ready to install."
+                }
+
+                else -> clearDownloaded()
             }
             val hasToken = api.token().isNotBlank()
             _connected.value = hasToken
