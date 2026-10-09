@@ -212,26 +212,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun markDownloaded(n: Int, file: java.io.File) {
         _downloadedBuild.value = n
-        db.settings().put(
-            org.aimlds.mymilo.data.SettingEntity(
-                "update_downloaded_build", n.toString()
+        viewModelScope.launch {
+            db.settings().put(
+                org.aimlds.mymilo.data.SettingEntity(
+                    "update_downloaded_build", n.toString()
+                )
             )
-        )
-        db.settings().put(
-            org.aimlds.mymilo.data.SettingEntity(
-                "update_apk_path", file.absolutePath
+            db.settings().put(
+                org.aimlds.mymilo.data.SettingEntity(
+                    "update_apk_path", file.absolutePath
+                )
             )
-        )
+        }
     }
 
     private fun clearDownloaded() {
         _downloadedBuild.value = null
-        db.settings().put(
-            org.aimlds.mymilo.data.SettingEntity("update_downloaded_build", "")
-        )
-        db.settings().put(
-            org.aimlds.mymilo.data.SettingEntity("update_apk_path", "")
-        )
+        viewModelScope.launch {
+            db.settings().put(
+                org.aimlds.mymilo.data.SettingEntity(
+                    "update_downloaded_build", ""
+                )
+            )
+            db.settings().put(
+                org.aimlds.mymilo.data.SettingEntity("update_apk_path", "")
+            )
+        }
     }
 
     override fun onCleared() {
