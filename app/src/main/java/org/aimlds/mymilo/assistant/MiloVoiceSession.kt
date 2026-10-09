@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -71,7 +73,9 @@ private class SessionState {
     var status by mutableStateOf("Listening…")
     var heard by mutableStateOf("")
     var reply by mutableStateOf("")
+    var sources by mutableStateOf("")
     var busy by mutableStateOf(false)
+    var listening by mutableStateOf(false)
 }
 
 /**
@@ -143,14 +147,24 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
         setViewTreeLifecycleOwner(owner)
         setViewTreeViewModelStoreOwner(owner)
         setViewTreeSavedStateRegistryOwner(owner)
+        // Honor the user's chosen skin (build 12; was hardcoded).
+        val skin = try {
+            val app = context.applicationContext as MiloApp
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                Skin.fromName(app.db.settings().get("skin"))
+            }
+        } catch (e: Exception) {
+            Skin.MIDNIGHT
+        }
         setContent {
             MaterialTheme(
-                colorScheme = Skin.MIDNIGHT.scheme(),
+                colorScheme = skin.scheme(),
                 typography = MiloTypography,
             ) {
                 Surface(modifier = Modifier.fillMaxWidth()) {
                     SessionPanel(state,
                         onOpenApp = { openApp() },
+                        onAskAgain = { startListening() },
                         onDone = { finish() })
                 }
             }
@@ -207,16 +221,20 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
         state.status = "Listening…"
         state.heard = ""
         state.reply = ""
+        state.sources = ""
+        state.listening = true
         AssistantDiag.record(context, "listening started")
         speech = SpeechInput(
             context = context,
             onPartial = { state.heard = it },
             onFinal = { text ->
+                state.listening = false
                 state.heard = text
                 AssistantDiag.record(context, "heard: ${text.take(60)}")
                 answer(text)
             },
             onError = { msg ->
+                state.listening = false
                 state.status = msg
                 AssistantDiag.record(context, "recognizer: $msg")
             },
@@ -229,6 +247,7 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
         // Local tools answer instantly, offline.
         LocalTools.tryHandle(text)?.let { local ->
             deliver(local)
+            persist(text, local, "local-tool", "")
             return
         }
         val app = context.applicationContext as MiloApp
@@ -247,7 +266,21 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
                 )
                 val reply = resp.choices?.firstOrNull()?.message?.content
                     ?: "(no reply)"
-                deliver(reply)
+                val src = resp.sources.orEmpty()
+                deliver(
+                    reply,
+                    src.joinToString(" · ") { it.title },
+                )
+                persist(
+                    text,
+                    reply,
+                    "server",
+                    if (src.isEmpty()) {
+                        ""
+                    } else {
+                        com.google.gson.Gson().toJson(src)
+                    },
+                )
             } catch (e: Exception) {
                 deliver("Couldn't reach MyMilo. ${e.message ?: ""}".trim())
             } finally {
@@ -256,8 +289,71 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
         }
     }
 
-    private fun deliver(text: String) {
+    /** Build 12: voice chats join the app's history (an "Assistant"
+     *  thread) instead of vanishing when the panel closes. */
+    private fun persist(
+        question: String,
+        reply: String,
+        origin: String,
+        sourcesJson: String,
+    ) {
+        val app = context.applicationContext as MiloApp
+        scope.launch {
+            try {
+                val db = app.db
+                var sid = db.settings().get("voice_session_id")
+                if (sid == null || db.sessions().get(sid) == null) {
+                    sid = java.util.UUID.randomUUID().toString()
+                        .replace("-", "").take(12)
+                    db.sessions().upsert(
+                        org.aimlds.mymilo.data.SessionEntity(
+                            id = sid,
+                            title = "Assistant",
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis(),
+                            dirty = true,
+                        )
+                    )
+                    db.settings().put(
+                        org.aimlds.mymilo.data.SettingEntity(
+                            "voice_session_id", sid
+                        )
+                    )
+                }
+                val now = System.currentTimeMillis()
+                db.messages().insert(
+                    org.aimlds.mymilo.data.MessageEntity(
+                        sessionId = sid,
+                        role = "user",
+                        content = question,
+                        createdAt = now,
+                        origin = "local",
+                        dirty = true,
+                    )
+                )
+                db.messages().insert(
+                    org.aimlds.mymilo.data.MessageEntity(
+                        sessionId = sid,
+                        role = "assistant",
+                        content = reply,
+                        createdAt = now + 1,
+                        origin = origin,
+                        sourcesJson = sourcesJson,
+                        dirty = true,
+                    )
+                )
+                db.sessions().get(sid)?.let {
+                    db.sessions().upsert(it.copy(updatedAt = now))
+                }
+            } catch (e: Exception) {
+                // History is best-effort; the answer already landed.
+            }
+        }
+    }
+
+    private fun deliver(text: String, sourcesLine: String = "") {
         state.reply = text
+        state.sources = sourcesLine
         state.status = ""
         AssistantDiag.record(context, "reply delivered: ${text.take(60)}")
         val app = context.applicationContext as MiloApp
@@ -283,28 +379,53 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
 private fun SessionPanel(
     state: SessionState,
     onOpenApp: () -> Unit,
+    onAskAgain: () -> Unit,
     onDone: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
         Text("mymilo", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp))
-        if (state.status.isNotEmpty()) {
-            Text(state.status, style = MaterialTheme.typography.bodyMedium)
-        }
-        if (state.heard.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "You: ${state.heard}",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-        }
-        if (state.reply.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(state.reply, style = MaterialTheme.typography.bodyLarge)
+        // Scrollable + height-capped (build 12): a long reply can no
+        // longer push the buttons out of the session window.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 380.dp)
+                .verticalScroll(
+                    androidx.compose.foundation.rememberScrollState()
+                ),
+        ) {
+            if (state.status.isNotEmpty()) {
+                Text(state.status, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (state.heard.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "You: ${state.heard}",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            if (state.reply.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(state.reply, style = MaterialTheme.typography.bodyLarge)
+            }
+            if (state.sources.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Sources: ${state.sources}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Spacer(Modifier.height(14.dp))
         Row {
             Button(onClick = onOpenApp) { Text("Open app") }
+            Spacer(Modifier.padding(6.dp))
+            Button(
+                onClick = onAskAgain,
+                enabled = !state.listening && !state.busy,
+            ) { Text("Ask again") }
             Spacer(Modifier.padding(6.dp))
             TextButton(onClick = onDone) { Text("Done") }
         }

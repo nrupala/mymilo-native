@@ -3,10 +3,11 @@ package org.aimlds.mymilo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,17 +16,28 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -44,12 +56,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import org.aimlds.mymilo.data.MessageEntity
+import org.aimlds.mymilo.data.SessionEntity
+import org.aimlds.mymilo.network.SourceDto
 import org.aimlds.mymilo.ui.MainViewModel
 
 class MainActivity : ComponentActivity() {
@@ -84,6 +101,15 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == "org.aimlds.mymilo.action.VOICE_ASK") {
             vm.requestVoiceAutoStart()
         }
+        // Build 12: text shared from other apps finally lands in the
+        // composer instead of being swallowed (audit #20).
+        if (intent?.action == android.content.Intent.ACTION_SEND &&
+            intent.type == "text/plain"
+        ) {
+            intent.getStringExtra(android.content.Intent.EXTRA_TEXT)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { vm.stageSharedText(it) }
+        }
     }
 }
 
@@ -105,7 +131,11 @@ fun SetupScreen(vm: MainViewModel) {
     var busy by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .padding(24.dp),
     ) {
         Spacer(Modifier.height(48.dp))
         Text("mymilo", style = MaterialTheme.typography.headlineMedium)
@@ -129,7 +159,8 @@ fun SetupScreen(vm: MainViewModel) {
         Text(
             "Get a token: open the server URL in your browser, sign in, " +
                 "and register this device on the Devices page.",
-            color = Color.Gray, fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
         )
         if (error.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
@@ -150,19 +181,112 @@ fun SetupScreen(vm: MainViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private fun dayLabel(ts: Long): String {
+    val now = java.util.Calendar.getInstance()
+    val then = java.util.Calendar.getInstance().apply { timeInMillis = ts }
+    val sameDay = now.get(java.util.Calendar.YEAR) ==
+        then.get(java.util.Calendar.YEAR) &&
+        now.get(java.util.Calendar.DAY_OF_YEAR) ==
+        then.get(java.util.Calendar.DAY_OF_YEAR)
+    now.add(java.util.Calendar.DAY_OF_YEAR, -1)
+    val yesterday = now.get(java.util.Calendar.YEAR) ==
+        then.get(java.util.Calendar.YEAR) &&
+        now.get(java.util.Calendar.DAY_OF_YEAR) ==
+        then.get(java.util.Calendar.DAY_OF_YEAR)
+    return when {
+        sameDay -> "Today"
+        yesterday -> "Yesterday"
+        else -> java.text.SimpleDateFormat("MMM d", java.util.Locale.US)
+            .format(java.util.Date(ts))
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SessionRow(
+    session: SessionEntity,
+    active: Boolean,
+    onOpen: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (active) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                } else {
+                    Color.Transparent
+                },
+                RoundedCornerShape(8.dp),
+            )
+            .padding(start = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clickable { onOpen() }
+                .padding(vertical = 10.dp, horizontal = 6.dp),
+        ) {
+            Text(
+                session.title,
+                fontWeight = if (active) FontWeight.SemiBold
+                else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                dayLabel(session.updatedAt),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box {
+            TextButton(onClick = { menu = true }) {
+                Text("⋯", fontSize = 18.sp)
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    onClick = { menu = false; onRename() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete") },
+                    onClick = { menu = false; onDelete() },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(vm: MainViewModel) {
     val sessions by vm.sessions.collectAsState()
     val messages by vm.messages.collectAsState()
     val status by vm.status.collectAsState()
     val skillCount by vm.skillCount.collectAsState()
-    val skinState = vm.skin.collectAsState()
+    val thinking by vm.thinking.collectAsState()
+    val currentId by vm.currentSessionId.collectAsState()
+    val skinState by vm.skin.collectAsState()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    // Shared text from other apps lands in the composer (audit #20).
+    val staged by vm.stagedText.collectAsState()
+    LaunchedEffect(staged) {
+        if (staged.isNotEmpty()) {
+            input = staged
+            vm.consumeStagedText()
+        }
+    }
 
     // Voice start (shared by the mic button and the Ask-Milo shortcut).
     val permLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -184,12 +308,201 @@ fun ChatScreen(vm: MainViewModel) {
         }
     }
 
+    // ── Chat export: share sheet or save-as-file (build 12) ─────
+    var pendingExport by remember { mutableStateOf<String?>(null) }
+    val saveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts
+            .CreateDocument("text/markdown")
+    ) { uri ->
+        val md = pendingExport
+        pendingExport = null
+        if (uri != null && md != null) {
+            scope.launch {
+                try {
+                    context.contentResolver.openOutputStream(uri)
+                        ?.use { it.write(md.toByteArray()) }
+                    android.widget.Toast.makeText(
+                        context, "Chat saved.", android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(
+                        context, "Could not save the file.",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+    fun exportChat(saveToFile: Boolean) {
+        val id = currentId ?: return
+        scope.launch {
+            val md = vm.exportThreadMarkdown(id)
+            if (saveToFile) {
+                pendingExport = md
+                saveLauncher.launch("mymilo-chat.md")
+            } else {
+                val send = android.content.Intent(
+                    android.content.Intent.ACTION_SEND
+                ).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_TEXT, md)
+                }
+                context.startActivity(
+                    android.content.Intent.createChooser(send, "Share chat")
+                )
+            }
+        }
+    }
+
+    // ── Dialog state (build 12) ──────────────────────────────────
+    var renameTarget by remember { mutableStateOf<SessionEntity?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<SessionEntity?>(null) }
+    var confirmDisconnect by remember { mutableStateOf(false) }
+    var menuMsg by remember { mutableStateOf<MessageEntity?>(null) }
+
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename chat") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    vm.renameSession(target.id, renameText)
+                    renameTarget = null
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete this chat?") },
+            text = {
+                Text(
+                    "“${target.title}” and all its messages will be " +
+                        "gone for good."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        vm.deleteSession(target.id)
+                        deleteTarget = null
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults
+                        .buttonColors(
+                            containerColor =
+                                MaterialTheme.colorScheme.error,
+                        ),
+                ) { Text("Delete for good") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text("Keep it")
+                }
+            },
+        )
+    }
+    if (confirmDisconnect) {
+        AlertDialog(
+            onDismissRequest = { confirmDisconnect = false },
+            title = { Text("Disconnect this phone?") },
+            text = {
+                Text(
+                    "Milo will stop answering on this phone until you " +
+                        "connect it again with a token from the " +
+                        "Devices page."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmDisconnect = false
+                        vm.disconnect()
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults
+                        .buttonColors(
+                            containerColor =
+                                MaterialTheme.colorScheme.error,
+                        ),
+                ) { Text("Disconnect") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDisconnect = false }) {
+                    Text("Stay connected")
+                }
+            },
+        )
+    }
+    menuMsg?.let { m ->
+        AlertDialog(
+            onDismissRequest = { menuMsg = null },
+            title = { Text("Message") },
+            text = {
+                Column {
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString(m.content))
+                        menuMsg = null
+                        android.widget.Toast.makeText(
+                            context, "Copied.",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }) { Text("Copy") }
+                    TextButton(onClick = {
+                        val send = android.content.Intent(
+                            android.content.Intent.ACTION_SEND
+                        ).apply {
+                            type = "text/plain"
+                            putExtra(
+                                android.content.Intent.EXTRA_TEXT,
+                                m.content,
+                            )
+                        }
+                        context.startActivity(
+                            android.content.Intent
+                                .createChooser(send, "Share message")
+                        )
+                        menuMsg = null
+                    }) { Text("Share") }
+                    TextButton(onClick = {
+                        vm.readAloud(m.content)
+                        menuMsg = null
+                    }) { Text("Read aloud") }
+                    if (m.role == "user") {
+                        TextButton(onClick = {
+                            vm.send(m.content)
+                            menuMsg = null
+                        }) { Text("Ask again") }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { menuMsg = null }) {
+                    Text("Close")
+                }
+            },
+        )
+    }
+
     // Auto-update prompt.
     val update by vm.updateInfo.collectAsState()
     var dismissedUpdate by remember { mutableStateOf(-1) }
     val pendingUpdate = update
     if (pendingUpdate != null && pendingUpdate.releaseNumber != dismissedUpdate) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { dismissedUpdate = pendingUpdate.releaseNumber },
             title = { Text("Update available") },
             text = {
@@ -215,6 +528,11 @@ fun ChatScreen(vm: MainViewModel) {
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
+    LaunchedEffect(thinking) {
+        if (thinking) {
+            listState.animateScrollToItem(messages.size.coerceAtLeast(0))
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -231,29 +549,65 @@ fun ChatScreen(vm: MainViewModel) {
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "$skillCount skills on this phone",
-                        color = Color.Gray, fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
                     )
                     Spacer(Modifier.height(8.dp))
+                    var threadQuery by remember { mutableStateOf("") }
+                    OutlinedTextField(
+                        value = threadQuery,
+                        onValueChange = { threadQuery = it },
+                        placeholder = { Text("Search chats") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    val visibleSessions = if (threadQuery.isBlank()) {
+                        sessions
+                    } else {
+                        sessions.filter {
+                            it.title.contains(threadQuery, ignoreCase = true)
+                        }
+                    }
                     // Bounded + scrollable (build-10 fix: an unbounded
-                    // LazyColumn in a plain Column ate the drawer and
-                    // pushed every control below off-screen).
+                    // LazyColumn in a plain Column ate the drawer).
                     LazyColumn(Modifier.weight(1f)) {
-                        items(sessions) { s ->
-                            Text(
-                                s.title,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        vm.openSession(s.id)
-                                        scope.launch { drawerState.close() }
-                                    }
-                                    .padding(vertical = 10.dp),
+                        items(visibleSessions, key = { it.id }) { s ->
+                            SessionRow(
+                                session = s,
+                                active = s.id == currentId,
+                                onOpen = {
+                                    vm.openSession(s.id)
+                                    scope.launch { drawerState.close() }
+                                },
+                                onRename = {
+                                    renameText = s.title
+                                    renameTarget = s
+                                },
+                                onDelete = { deleteTarget = s },
                             )
+                        }
+                        if (visibleSessions.isEmpty()) {
+                            item {
+                                Text(
+                                    if (sessions.isEmpty()) {
+                                        "No chats yet — start one above."
+                                    } else {
+                                        "No chats match your search."
+                                    },
+                                    color = MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(
+                                        vertical = 10.dp, horizontal = 6.dp
+                                    ),
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Skin",
+                        "Appearance",
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Row(
@@ -262,25 +616,46 @@ fun ChatScreen(vm: MainViewModel) {
                             .horizontalScroll(rememberScrollState()),
                     ) {
                         org.aimlds.mymilo.ui.Skin.entries.forEach { s ->
-                            val current = skinState.value == s
-                            Text(
-                                (if (current) "● " else "○ ") + s.label,
+                            val current = skinState == s
+                            Row(
                                 modifier = Modifier
                                     .clickable { vm.setSkin(s) }
                                     .padding(
                                         horizontal = 8.dp,
                                         vertical = 8.dp,
                                     ),
-                                color = if (current)
-                                    MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface,
-                            )
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(12.dp)
+                                        .background(
+                                            s.scheme().primary,
+                                            CircleShape,
+                                        )
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    s.label,
+                                    color = if (current) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                                    fontWeight = if (current) {
+                                        FontWeight.SemiBold
+                                    } else {
+                                        FontWeight.Normal
+                                    },
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    TextButton(onClick = { vm.refreshFromServer() }) {
-                        Text("Sync now")
-                    }
+                    Text(
+                        "Assistant",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                     var assistantStatus by remember { mutableStateOf("") }
                     // The reliable route on every OEM skin: Android's
                     // own assistant-settings screen, where MyMilo is
@@ -463,18 +838,27 @@ fun ChatScreen(vm: MainViewModel) {
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { vm.refreshFromServer() }) {
+                        Text("Sync now")
+                    }
+                    TextButton(
+                        onClick = { confirmDisconnect = true }
+                    ) {
+                        Text(
+                            "Disconnect device",
+                            color = Color(0xFFFF5D5D),
+                        )
+                    }
                     Text(
-                        "MyMilo v" + org.aimlds.mymilo.BuildConfig.VERSION_NAME +
-                            " · build " +
-                            org.aimlds.mymilo.update.UpdateChecker
-                                .currentReleaseNumber(),
+                        "MyMilo v" +
+                            org.aimlds.mymilo.BuildConfig.VERSION_NAME,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(
+                            horizontal = 16.dp, vertical = 4.dp
+                        ),
                     )
-                    TextButton(onClick = { vm.disconnect() }) {
-                        Text("Disconnect device", color = Color(0xFFFF5D5D))
-                    }
                 }
             }
         },
@@ -482,9 +866,18 @@ fun ChatScreen(vm: MainViewModel) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("mymilo") },
+                    title = {
+                        Text(
+                            sessions.firstOrNull { it.id == currentId }
+                                ?.title ?: "mymilo",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
                     navigationIcon = {
-                        TextButton(onClick = { scope.launch { drawerState.open() } }) {
+                        TextButton(onClick = {
+                            scope.launch { drawerState.open() }
+                        }) {
                             Text("☰", fontSize = 20.sp)
                         }
                     },
@@ -492,6 +885,35 @@ fun ChatScreen(vm: MainViewModel) {
                         val ttsOn by vm.ttsEnabled.collectAsState()
                         TextButton(onClick = { vm.setTtsEnabled(!ttsOn) }) {
                             Text(if (ttsOn) "🔊" else "🔇", fontSize = 18.sp)
+                        }
+                        var overflowOpen by remember {
+                            mutableStateOf(false)
+                        }
+                        Box {
+                            TextButton(onClick = { overflowOpen = true }) {
+                                Text("⋮", fontSize = 20.sp)
+                            }
+                            DropdownMenu(
+                                expanded = overflowOpen,
+                                onDismissRequest = { overflowOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Share this chat") },
+                                    enabled = currentId != null,
+                                    onClick = {
+                                        overflowOpen = false
+                                        exportChat(saveToFile = false)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Save chat as file") },
+                                    enabled = currentId != null,
+                                    onClick = {
+                                        overflowOpen = false
+                                        exportChat(saveToFile = true)
+                                    },
+                                )
+                            }
                         }
                     },
                 )
@@ -505,12 +927,19 @@ fun ChatScreen(vm: MainViewModel) {
                             "🎙 Listening… " + partial,
                             color = MaterialTheme.colorScheme.primary,
                             fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(
+                                horizontal = 16.dp, vertical = 2.dp
+                            ),
                         )
                     } else if (status.isNotEmpty()) {
                         Text(
-                            status, color = Color.Gray, fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            status,
+                            color = MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(
+                                horizontal = 16.dp, vertical = 2.dp
+                            ),
                         )
                     }
                     Row(
@@ -525,9 +954,11 @@ fun ChatScreen(vm: MainViewModel) {
                             },
                             colors = androidx.compose.material3.ButtonDefaults
                                 .buttonColors(
-                                    containerColor = if (listeningNow2)
+                                    containerColor = if (listeningNow2) {
                                         MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.secondary,
+                                    } else {
+                                        MaterialTheme.colorScheme.secondary
+                                    },
                                 ),
                         ) { Text("🎤") }
                         Spacer(Modifier.width(8.dp))
@@ -551,51 +982,184 @@ fun ChatScreen(vm: MainViewModel) {
         ) { padding ->
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(12.dp),
             ) {
-                items(messages) { m -> MessageBubble(m) }
+                if (messages.isEmpty() && !thinking) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 56.dp),
+                            horizontalAlignment =
+                                Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                "Hi, I'm Milo.",
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Ask me anything — I can work things " +
+                                    "out, write with you, check the web, " +
+                                    "and remember what matters.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Spacer(Modifier.height(20.dp))
+                            listOf(
+                                "What's 15% of 240?",
+                                "Write a polite email declining a meeting",
+                                "Latest news on AI chips",
+                            ).forEach { suggestion ->
+                                OutlinedButton(
+                                    onClick = { vm.send(suggestion) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                ) { Text(suggestion) }
+                            }
+                        }
+                    }
+                }
+                items(messages, key = { it.localId }) { m ->
+                    MessageRow(
+                        m = m,
+                        sources = vm.parseSources(m.sourcesJson),
+                        onLongPress = { menuMsg = m },
+                        onOpenUrl = { url ->
+                            try {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(url),
+                                    )
+                                )
+                            } catch (e: Exception) {
+                                // No browser / bad URL: stay silent-safe.
+                            }
+                        },
+                    )
+                }
+                if (thinking) {
+                    item {
+                        Row(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "Milo is thinking…",
+                                color = MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(m: MessageEntity) {
-    val isUser = m.role == "user"
+fun MessageRow(
+    m: MessageEntity,
+    sources: List<SourceDto>,
+    onLongPress: () -> Unit,
+    onOpenUrl: (String) -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = if (isUser) androidx.compose.foundation.layout.Arrangement.End
-        else androidx.compose.foundation.layout.Arrangement.Start,
-    ) {
-        Box(
-            modifier = Modifier
-                .background(
-                    if (isUser) colors.primary else colors.surfaceVariant,
-                    RoundedCornerShape(14.dp),
-                )
-                .padding(12.dp),
+    if (m.role == "user") {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement =
+                androidx.compose.foundation.layout.Arrangement.End,
         ) {
-            Column {
+            Box(
+                modifier = Modifier
+                    .background(
+                        colors.primary,
+                        RoundedCornerShape(14.dp),
+                    )
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = onLongPress,
+                    )
+                    .padding(12.dp),
+            ) {
                 Text(
                     m.content,
-                    color = if (isUser) colors.onPrimary else colors.onSurfaceVariant,
+                    color = colors.onPrimary,
                     style = MaterialTheme.typography.bodyLarge,
                 )
-                val originLabel = when (m.origin) {
-                    "local-tool" -> "on this phone"
-                    "local-model" -> "on-device model"
-                    "server" -> "MyMilo server"
-                    "queued" -> "queued"
-                    else -> null
-                }
-                if (!isUser && originLabel != null) {
-                    Text(
-                        originLabel,
-                        color = colors.onSurfaceVariant.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
+            }
+        }
+        return
+    }
+    // Assistant answers read full-width (Perplexity pattern), with
+    // selectable text, an origin line, and the turn's sources.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = onLongPress,
+            )
+            .padding(vertical = 6.dp, horizontal = 2.dp),
+    ) {
+        SelectionContainer {
+            Text(
+                m.content,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        val originLabel = when (m.origin) {
+            "local-tool" -> "on this phone"
+            "local-model" -> "on-device model"
+            "server" -> "MyMilo server"
+            "queued" -> "queued"
+            else -> null
+        }
+        if (originLabel != null) {
+            Text(
+                originLabel,
+                color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        if (sources.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Sources",
+                color = colors.primary,
+                style = MaterialTheme.typography.labelSmall,
+            )
+            sources.forEach { s ->
+                val url = s.url
+                Text(
+                    "· " + s.title,
+                    color = if (!url.isNullOrBlank()) {
+                        colors.primary
+                    } else {
+                        colors.onSurfaceVariant
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = if (!url.isNullOrBlank()) {
+                        Modifier.clickable { onOpenUrl(url) }
+                    } else {
+                        Modifier
+                    },
+                )
             }
         }
     }

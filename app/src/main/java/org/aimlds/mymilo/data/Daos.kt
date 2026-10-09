@@ -82,7 +82,7 @@ interface SettingDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class, SkillEntity::class, SettingEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class MiloDatabase : RoomDatabase() {
@@ -92,8 +92,19 @@ abstract class MiloDatabase : RoomDatabase() {
     abstract fun settings(): SettingDao
 
     companion object {
+        /** v1 → v2 (app v0.7.0): messages gain the sources column.
+         *  A real migration — the user's threads are never wiped. */
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE messages ADD COLUMN sourcesJson TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         fun build(context: Context): MiloDatabase =
             Room.databaseBuilder(context, MiloDatabase::class.java, "mymilo.db")
+                .addMigrations(MIGRATION_1_2)
                 .fallbackToDestructiveMigration()
                 .build()
     }

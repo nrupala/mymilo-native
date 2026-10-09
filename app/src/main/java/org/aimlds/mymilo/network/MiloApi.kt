@@ -23,11 +23,19 @@ data class ChatRequest(
 )
 
 data class ChatChoice(val message: ChatMessageDto?)
+data class SourceDto(
+    val type: String,
+    val title: String,
+    val url: String? = null,
+    val detail: String? = null,
+)
 data class ChatResponse(
     val choices: List<ChatChoice>?,
     val session_id: String?,
     val active_skill: String?,
     val routed_model: String?,
+    /** v0.40.0+: what the turn used (skill, memory, web, market…). */
+    val sources: List<SourceDto>?,
 )
 
 data class SessionDto(val id: String, val title: String?, val updated_at: Double?)

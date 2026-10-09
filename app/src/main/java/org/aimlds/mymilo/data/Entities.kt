@@ -29,6 +29,8 @@ data class MessageEntity(
     /** Where the reply came from: local-tool | local-model | server. */
     val origin: String = "server",
     val dirty: Boolean = false,
+    /** v0.7.0: the turn's sources as JSON (server v0.40.0 `sources`). */
+    val sourcesJson: String = "",
 )
 
 /** Skills are dual-homed: synced from the server, matched locally. */

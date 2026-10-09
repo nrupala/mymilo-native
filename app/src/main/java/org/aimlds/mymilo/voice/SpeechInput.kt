@@ -88,6 +88,6 @@ class SpeechInput(
         SpeechRecognizer.ERROR_AUDIO -> "Microphone problem."
         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
             "Microphone permission is needed for voice input."
-        else -> "Voice input error ($error)."
+        else -> "Voice had a hiccup — try again."
     }
 }

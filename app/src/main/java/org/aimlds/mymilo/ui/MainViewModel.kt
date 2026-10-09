@@ -130,8 +130,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _voiceAutoStart = MutableStateFlow(false)
     val voiceAutoStart: StateFlow<Boolean> = _voiceAutoStart
 
+    // True while the server is working on a reply (build 12: the
+    // in-conversation "Milo is thinking…" presence).
+    private val _thinking = MutableStateFlow(false)
+    val thinking: StateFlow<Boolean> = _thinking
+
+    /** The open session's id, for the drawer's active-thread marker. */
+    val currentSessionId: StateFlow<String?> = _currentSessionId
+
+    /** Parse a message's stored sources JSON ("" when none). */
+    fun parseSources(json: String): List<org.aimlds.mymilo.network.SourceDto> {
+        if (json.isBlank()) return emptyList()
+        return try {
+            val type = object :
+                com.google.gson.reflect.TypeToken<
+                    List<org.aimlds.mymilo.network.SourceDto>
+                    >() {}.type
+            com.google.gson.Gson().fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     fun requestVoiceAutoStart() {
         _voiceAutoStart.value = true
+    }
+
+    // Text handed to the app by another app's Share sheet
+    // (build 12: the manifest's ACTION_SEND, finally wired).
+    private val _stagedText = MutableStateFlow("")
+    val stagedText: StateFlow<String> = _stagedText
+
+    fun stageSharedText(text: String) {
+        _stagedText.value = text
+    }
+
+    fun consumeStagedText() {
+        _stagedText.value = ""
     }
 
     fun consumeVoiceAutoStart() {
@@ -446,6 +481,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             _status.value = "Asking MyMilo…"
+            _thinking.value = true
             try {
                 val history = db.messages().forSession(sid)
                     .filter { it.role == "user" || it.role == "assistant" }
@@ -456,7 +492,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 val reply = resp.choices?.firstOrNull()?.message?.content
                     ?: "(no reply)"
-                addAssistant(sid, reply, "server")
+                val sourcesJson = resp.sources
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { com.google.gson.Gson().toJson(it) }
+                    ?: ""
+                addAssistant(sid, reply, "server", sourcesJson)
                 _status.value = resp.active_skill?.let { "Skill: $it" } ?: ""
             } catch (e: Exception) {
                 addAssistant(
@@ -466,11 +506,73 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     "error",
                 )
                 _status.value = ""
+            } finally {
+                _thinking.value = false
             }
         }
     }
 
-    private suspend fun addAssistant(sid: String, content: String, origin: String) {
+    /** Build 12: delete a thread and all of its messages, for good. */
+    fun deleteSession(id: String) {
+        viewModelScope.launch {
+            db.messages().deleteForSession(id)
+            db.sessions().delete(id)
+            if (_currentSessionId.value == id) {
+                _currentSessionId.value = null
+                _messages.value = emptyList()
+            }
+        }
+    }
+
+    /** Build 12: rename a thread. */
+    fun renameSession(id: String, title: String) {
+        val clean = title.trim().take(80)
+        if (clean.isEmpty()) return
+        viewModelScope.launch {
+            val s = db.sessions().get(id) ?: return@launch
+            db.sessions().upsert(s.copy(title = clean))
+        }
+    }
+
+    /** Build 12: read any message aloud on demand (phone TTS). */
+    fun readAloud(text: String) {
+        tts.speak(text)
+    }
+
+    /** Build 12: a thread as shareable/saveable markdown. */
+    suspend fun exportThreadMarkdown(id: String): String {
+        val s = db.sessions().get(id)
+        val msgs = db.messages().forSession(id)
+        val sb = StringBuilder()
+        sb.append("# ").append(s?.title ?: "MyMilo chat").append("\n\n")
+        val fmt = java.text.SimpleDateFormat(
+            "yyyy-MM-dd HH:mm", java.util.Locale.US
+        )
+        for (m in msgs) {
+            val when_ = fmt.format(java.util.Date(m.createdAt))
+            if (m.role == "user") {
+                sb.append("**You** · ").append(when_).append("\n\n")
+                sb.append(m.content).append("\n\n")
+            } else if (m.role == "assistant") {
+                sb.append("**Milo** · ").append(when_).append("\n\n")
+                sb.append(m.content).append("\n\n")
+                val srcs = parseSources(m.sourcesJson)
+                if (srcs.isNotEmpty()) {
+                    sb.append("Sources: ")
+                    sb.append(srcs.joinToString(" · ") { it.title })
+                    sb.append("\n\n")
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    private suspend fun addAssistant(
+        sid: String,
+        content: String,
+        origin: String,
+        sourcesJson: String = "",
+    ) {
         db.messages().insert(
             MessageEntity(
                 sessionId = sid,
@@ -478,6 +580,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 content = content,
                 createdAt = System.currentTimeMillis(),
                 origin = origin,
+                sourcesJson = sourcesJson,
             )
         )
         // v0.4.0: read real replies aloud with the phone's own TTS.

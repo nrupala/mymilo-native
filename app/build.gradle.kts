@@ -17,7 +17,7 @@ plugins {
         val buildNumber = System.getenv("MYMILO_BUILD_NUMBER")?.toIntOrNull() ?: 0
         versionCode = 500 + buildNumber
         buildConfigField("int", "BUILD_NUMBER", "${500 + buildNumber}")
-        versionName = "0.6.0"
+        versionName = "0.7.0"
     }
 
     // Release signing (v0.6.0): the keystore is provided by CI from
