@@ -389,6 +389,24 @@ fun ChatScreen(vm: MainViewModel) {
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     }
+                    var diagText by remember {
+                        mutableStateOf(
+                            org.aimlds.mymilo.assistant.AssistantDiag
+                                .last(context)
+                        )
+                    }
+                    LaunchedEffect(drawerState.currentValue) {
+                        diagText = org.aimlds.mymilo.assistant
+                            .AssistantDiag.last(context)
+                    }
+                    if (diagText.isNotEmpty()) {
+                        Text(
+                            "Last assistant activity: $diagText",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
                     TextButton(onClick = { vm.checkForUpdate(manual = true) }) {
                         Text("Check for updates")
                     }

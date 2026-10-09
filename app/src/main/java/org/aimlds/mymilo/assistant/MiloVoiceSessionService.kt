@@ -5,6 +5,8 @@ import android.service.voice.VoiceInteractionSession
 import android.service.voice.VoiceInteractionSessionService
 
 class MiloVoiceSessionService : VoiceInteractionSessionService() {
-    override fun onNewSession(args: Bundle?): VoiceInteractionSession =
-        MiloVoiceSession(this)
+    override fun onNewSession(args: Bundle?): VoiceInteractionSession {
+        AssistantDiag.record(this, "session created")
+        return MiloVoiceSession(this)
+    }
 }

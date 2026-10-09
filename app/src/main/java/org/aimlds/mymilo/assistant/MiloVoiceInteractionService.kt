@@ -7,4 +7,10 @@ import android.service.voice.VoiceInteractionService
  * When Nrupal picks MyMilo in Settings → Default apps → Digital
  * assistant, the assistant gestures invoke MiloVoiceSession.
  */
-class MiloVoiceInteractionService : VoiceInteractionService()
+class MiloVoiceInteractionService : VoiceInteractionService() {
+
+    override fun onReady() {
+        super.onReady()
+        AssistantDiag.record(this, "assistant service ready")
+    }
+}

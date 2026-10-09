@@ -90,38 +90,104 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
     override fun onCreate() {
         super.onCreate()
         owner.onCreate()
+        AssistantDiag.record(context, "session onCreate")
     }
 
     override fun onShow(args: android.os.Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
-        val composeView = ComposeView(context).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+        AssistantDiag.record(context, "assistant invoked (session shown)")
+        try {
+            setContentView(buildPanel())
+        } catch (e: Exception) {
+            AssistantDiag.record(
+                context,
+                "panel failed: ${e.javaClass.simpleName}: ${e.message}",
             )
-            setViewTreeLifecycleOwner(owner)
-            setViewTreeViewModelStoreOwner(owner)
-            setViewTreeSavedStateRegistryOwner(owner)
-            setContent {
-                MaterialTheme(
-                    colorScheme = Skin.MIDNIGHT.scheme(),
-                    typography = MiloTypography,
-                ) {
-                    Surface(modifier = Modifier.fillMaxWidth()) {
-                        SessionPanel(state,
-                            onOpenApp = { openApp() },
-                            onDone = { finish() })
-                    }
+            try {
+                setContentView(fallbackView(e))
+            } catch (ignored: Exception) {
+                // Even the fallback failed; the diag line is the evidence.
+            }
+            return
+        }
+        owner.event(Lifecycle.Event.ON_START)
+        owner.event(Lifecycle.Event.ON_RESUME)
+        val micGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.RECORD_AUDIO,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!micGranted) {
+            state.status = "Microphone permission needed: open the app, " +
+                "tap the mic in the chat box, and allow microphone access. " +
+                "Then invoke me again."
+            AssistantDiag.record(context, "mic permission NOT granted")
+            return
+        }
+        try {
+            startListening()
+        } catch (e: Exception) {
+            state.status = "Voice failed to start: ${e.message ?: "unknown error"}"
+            AssistantDiag.record(
+                context,
+                "listen failed: ${e.javaClass.simpleName}: ${e.message}",
+            )
+        }
+    }
+
+    /** The Compose panel, isolated so a failure here can fall back. */
+    private fun buildPanel(): ComposeView = ComposeView(context).apply {
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        )
+        setViewTreeLifecycleOwner(owner)
+        setViewTreeViewModelStoreOwner(owner)
+        setViewTreeSavedStateRegistryOwner(owner)
+        setContent {
+            MaterialTheme(
+                colorScheme = Skin.MIDNIGHT.scheme(),
+                typography = MiloTypography,
+            ) {
+                Surface(modifier = Modifier.fillMaxWidth()) {
+                    SessionPanel(state,
+                        onOpenApp = { openApp() },
+                        onDone = { finish() })
                 }
             }
         }
-        setContentView(composeView)
-        owner.event(Lifecycle.Event.ON_START)
-        owner.event(Lifecycle.Event.ON_RESUME)
-        startListening()
+    }
+
+    /** Plain-View emergency screen: a session must never show nothing. */
+    private fun fallbackView(error: Exception): View {
+        val layout = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 48, 48, 48)
+            setBackgroundColor(android.graphics.Color.rgb(18, 18, 24))
+        }
+        val title = android.widget.TextView(context).apply {
+            text = "mymilo assistant"
+            textSize = 20f
+            setTextColor(android.graphics.Color.WHITE)
+        }
+        val detail = android.widget.TextView(context).apply {
+            text = "The assistant screen hit a problem: " +
+                "${error.javaClass.simpleName}: ${error.message ?: ""}\n\n" +
+                "Open the app drawer — the “Last assistant activity” " +
+                "line has the details."
+            setTextColor(android.graphics.Color.rgb(220, 220, 230))
+        }
+        val open = android.widget.Button(context).apply {
+            text = "Open app"
+            setOnClickListener { openApp() }
+        }
+        layout.addView(title)
+        layout.addView(detail)
+        layout.addView(open)
+        return layout
     }
 
     override fun onHide() {
+        AssistantDiag.record(context, "session hidden")
         speech?.destroy()
         speech = null
         tts?.stop()
@@ -141,14 +207,19 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
         state.status = "Listening…"
         state.heard = ""
         state.reply = ""
+        AssistantDiag.record(context, "listening started")
         speech = SpeechInput(
             context = context,
             onPartial = { state.heard = it },
             onFinal = { text ->
                 state.heard = text
+                AssistantDiag.record(context, "heard: ${text.take(60)}")
                 answer(text)
             },
-            onError = { msg -> state.status = msg },
+            onError = { msg ->
+                state.status = msg
+                AssistantDiag.record(context, "recognizer: $msg")
+            },
             onEnd = {},
         )
         speech?.start()
@@ -188,6 +259,7 @@ class MiloVoiceSession(context: Context) : VoiceInteractionSession(context) {
     private fun deliver(text: String) {
         state.reply = text
         state.status = ""
+        AssistantDiag.record(context, "reply delivered: ${text.take(60)}")
         val app = context.applicationContext as MiloApp
         scope.launch {
             val enabled = app.db.settings().get("tts_enabled") != "false"
