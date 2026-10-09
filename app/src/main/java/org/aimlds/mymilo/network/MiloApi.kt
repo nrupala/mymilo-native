@@ -20,6 +20,8 @@ data class ChatRequest(
     val model: String = "auto",
     val messages: List<ChatMessageDto>,
     val session_id: String? = null,
+    /** Server v0.41.0+: run this skill on purpose for the turn. */
+    val skill: String? = null,
 )
 
 data class ChatChoice(val message: ChatMessageDto?)
@@ -57,6 +59,9 @@ data class SkillDto(
     val description: String?,
     val triggers: List<String>?,
     val content: String?,
+    val category: String? = null,
+    val blurb: String? = null,
+    val example: String? = null,
 )
 data class SkillBundleResponse(
     val version: String?,
@@ -68,6 +73,8 @@ data class ClientConfigResponse(
     val version: String?,
     val sync_interval_seconds: Int?,
     val skills_bundle_version: String?,
+    /** Server v0.42.0+: Support button destination ("" hides it). */
+    val support_url: String? = null,
 )
 
 interface MiloService {

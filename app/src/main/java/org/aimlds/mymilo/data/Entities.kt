@@ -42,6 +42,11 @@ data class SkillEntity(
     val triggers: String,
     /** The skill's instruction body, fed to whichever model answers. */
     val content: String,
+    /** v0.8.0: catalogue fields from the server bundle — where the
+     *  skill shelves, what it does in plain words, an example. */
+    val category: String = "More skills",
+    val blurb: String = "",
+    val example: String = "",
 )
 
 /** Simple key-value settings (server URL, device token, sync state). */

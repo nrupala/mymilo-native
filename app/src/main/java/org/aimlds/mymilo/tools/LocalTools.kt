@@ -10,8 +10,14 @@ object LocalTools {
 
     fun tryHandle(message: String): String? {
         val text = message.trim()
-        return tryCalculator(text)
-            ?: tryUnitConversion(text)
+        // Total function: a malformed expression ("1.2.3 * 2") must
+        // fall through to the server, never crash the chat — the
+        // parser's number reader can meet input it cannot parse.
+        return try {
+            tryCalculator(text) ?: tryUnitConversion(text)
+        } catch (e: Exception) {
+            null
+        }
     }
 
     // ── Calculator ──────────────────────────────────────────
@@ -148,6 +154,7 @@ private class ExpressionParser(private val input: String) {
         val start = pos
         while (pos < input.length && (input[pos].isDigit() || input[pos] == '.')) pos++
         if (start == pos) throw IllegalArgumentException("number expected")
-        return input.substring(start, pos).toDouble()
+        return input.substring(start, pos).toDoubleOrNull()
+            ?: throw IllegalArgumentException("bad number")
     }
 }

@@ -68,6 +68,9 @@ import org.aimlds.mymilo.data.MessageEntity
 import org.aimlds.mymilo.data.SessionEntity
 import org.aimlds.mymilo.network.SourceDto
 import org.aimlds.mymilo.ui.MainViewModel
+import org.aimlds.mymilo.ui.AboutScreen
+import org.aimlds.mymilo.ui.GuideScreen
+import org.aimlds.mymilo.ui.SkillsScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -116,10 +119,16 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MiloRoot(vm: MainViewModel = viewModel()) {
     val connected by vm.connected.collectAsState()
+    val screen by vm.screen.collectAsState()
     if (!connected) {
         SetupScreen(vm)
     } else {
-        ChatScreen(vm)
+        when (screen) {
+            "skills" -> SkillsScreen(vm)
+            "guide" -> GuideScreen(vm)
+            "about" -> AboutScreen(vm)
+            else -> ChatScreen(vm)
+        }
     }
 }
 
@@ -347,9 +356,16 @@ fun ChatScreen(vm: MainViewModel) {
                     type = "text/plain"
                     putExtra(android.content.Intent.EXTRA_TEXT, md)
                 }
-                context.startActivity(
-                    android.content.Intent.createChooser(send, "Share chat")
-                )
+                try {
+                    context.startActivity(
+                        android.content.Intent.createChooser(send, "Share chat")
+                    )
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(
+                        context, "No app available to share with.",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }
@@ -470,10 +486,17 @@ fun ChatScreen(vm: MainViewModel) {
                                 m.content,
                             )
                         }
-                        context.startActivity(
-                            android.content.Intent
-                                .createChooser(send, "Share message")
-                        )
+                        try {
+                            context.startActivity(
+                                android.content.Intent
+                                    .createChooser(send, "Share message")
+                            )
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(
+                                context, "No app available to share with.",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
                         menuMsg = null
                     }) { Text("Share") }
                     TextButton(onClick = {
@@ -552,6 +575,29 @@ fun ChatScreen(vm: MainViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                     )
+                    // Discover (v0.8.0): the catalogue, the guide,
+                    // and About — where the skills actually live.
+                    TextButton(
+                        onClick = {
+                            vm.showScreen("skills")
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Skills — browse all $skillCount") }
+                    TextButton(
+                        onClick = {
+                            vm.showScreen("guide")
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Help & guide") }
+                    TextButton(
+                        onClick = {
+                            vm.showScreen("about")
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("About") }
                     Spacer(Modifier.height(8.dp))
                     var threadQuery by remember { mutableStateOf("") }
                     OutlinedTextField(

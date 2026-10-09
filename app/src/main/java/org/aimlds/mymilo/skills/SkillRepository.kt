@@ -30,6 +30,9 @@ class SkillRepository(
                 description = dto.description ?: "",
                 triggers = dto.triggers.orEmpty().joinToString(",") { it.lowercase() },
                 content = dto.content ?: "",
+                category = dto.category ?: "More skills",
+                blurb = dto.blurb ?: (dto.description ?: ""),
+                example = dto.example ?: "",
             )
         }
         if (skills.isNotEmpty()) {

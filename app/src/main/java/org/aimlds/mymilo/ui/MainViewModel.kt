@@ -37,6 +37,42 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val sessions = db.sessions().observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // ── Guide & About (v0.8.0) ───────────────────────────────────
+    /** The full skills catalogue, live from the on-device cache. */
+    val skillCatalog = db.skills().observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Top-level screen: chat | skills | guide | about. */
+    private val _screen = MutableStateFlow("chat")
+    val screen: StateFlow<String> = _screen
+
+    fun showScreen(name: String) {
+        _screen.value = name
+    }
+
+    /** Favorite skills (starred in the catalogue), on-device only. */
+    private val _pinnedSkills = MutableStateFlow<List<String>>(emptyList())
+    val pinnedSkills: StateFlow<List<String>> = _pinnedSkills
+
+    fun togglePin(skillName: String) {
+        val now = _pinnedSkills.value.toMutableList()
+        if (now.contains(skillName)) now.remove(skillName) else now.add(skillName)
+        _pinnedSkills.value = now
+        viewModelScope.launch {
+            db.settings().put(
+                org.aimlds.mymilo.data.SettingEntity(
+                    "pinned_skills", now.joinToString(",")
+                )
+            )
+        }
+    }
+
+    /** Support button destination, from the server's client
+     *  config; blank hides the button (set server-side, no app
+     *  release needed to change it). */
+    private val _supportUrl = MutableStateFlow("")
+    val supportUrl: StateFlow<String> = _supportUrl
+
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId
 
@@ -103,7 +139,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 _partialText.value = ""
             },
         )
-        speech?.start()
+        // A recognizer that fails to start must land as a status
+        // line, never a crash (build-15 hardening).
+        try {
+            speech?.start()
+        } catch (e: Exception) {
+            _listening.value = false
+            _status.value = "Voice couldn't start on this phone."
+        }
     }
 
     fun stopDictation() {
@@ -322,13 +365,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _connected.value = hasToken
             skills.loadFromDb()
             _skillCount.value = skills.count()
+            _pinnedSkills.value = db.settings().get("pinned_skills")
+                ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+                ?: emptyList()
             if (hasToken) {
                 // v0.3.0: re-validate the saved token instead of
                 // pretending to be connected (build-1 trap). A 401
                 // means the token is dead -> back to setup. A network
                 // error keeps offline mode available.
                 try {
-                    api.service().clientConfig()
+                    val cfg = api.service().clientConfig()
+                    _supportUrl.value = cfg.support_url ?: ""
                     refreshFromServer()
                 } catch (e: Exception) {
                     if ((e as? retrofit2.HttpException)?.code() == 401) {
@@ -436,7 +483,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun send(text: String) {
+    fun send(text: String) = sendInternal(text, null, null)
+
+    /** v0.8.0: run a skill on purpose (catalogue tap-to-run). The
+     *  turn starts a fresh chat titled with the skill's plain name
+     *  and the server runs the named skill (v0.41.0). */
+    fun runSkill(skillName: String, humanName: String, prompt: String) {
+        _currentSessionId.value = null
+        _messages.value = emptyList()
+        _screen.value = "chat"
+        sendInternal(prompt, skillName, humanName)
+    }
+
+    private fun sendInternal(
+        text: String,
+        forcedSkill: String?,
+        sessionTitle: String?,
+    ) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
         tts.stop() // a new message interrupts any read-aloud
@@ -448,7 +511,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 db.sessions().upsert(
                     SessionEntity(
                         id = sid,
-                        title = trimmed.take(60),
+                        title = sessionTitle ?: trimmed.take(60),
                         createdAt = System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis(),
                         dirty = true,
@@ -469,14 +532,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _messages.value = db.messages().forSession(sid)
 
             // ── Tier 1: local tools (instant, offline) ──
-            val toolReply = LocalTools.tryHandle(trimmed)
-            if (toolReply != null) {
-                addAssistant(sid, toolReply, "local-tool")
-                return@launch
+            // Skipped when a skill was chosen on purpose: the user
+            // asked for the skill, not the calculator.
+            if (forcedSkill == null) {
+                val toolReply = LocalTools.tryHandle(trimmed)
+                if (toolReply != null) {
+                    addAssistant(sid, toolReply, "local-tool")
+                    return@launch
+                }
             }
 
             // ── Tier 2: skill match happens on-device ──
-            val skill = skills.match(trimmed)
+            if (forcedSkill != null) {
+                _status.value = "Skill: $forcedSkill"
+            }
+            val skill = if (forcedSkill == null) skills.match(trimmed) else null
             if (skill != null) _status.value = "Skill: ${skill.name}"
 
             // ── Tier 3: server escalation (needs network) ──
@@ -498,7 +568,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     .takeLast(20)
                     .map { ChatMessageDto(it.role, it.content) }
                 val resp = api.service().chat(
-                    ChatRequest(messages = history, session_id = sid)
+                    ChatRequest(
+                        messages = history,
+                        session_id = sid,
+                        skill = forcedSkill,
+                    )
                 )
                 val reply = resp.choices?.firstOrNull()?.message?.content
                     ?: "(no reply)"

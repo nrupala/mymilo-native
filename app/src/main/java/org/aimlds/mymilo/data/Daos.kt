@@ -82,7 +82,7 @@ interface SettingDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class, SkillEntity::class, SettingEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class MiloDatabase : RoomDatabase() {
@@ -102,9 +102,24 @@ abstract class MiloDatabase : RoomDatabase() {
             }
         }
 
+        /** v2 → v3 (app v0.8.0): skills gain the catalogue fields. */
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE skills ADD COLUMN category TEXT NOT NULL DEFAULT 'More skills'"
+                )
+                db.execSQL(
+                    "ALTER TABLE skills ADD COLUMN blurb TEXT NOT NULL DEFAULT ''"
+                )
+                db.execSQL(
+                    "ALTER TABLE skills ADD COLUMN example TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         fun build(context: Context): MiloDatabase =
             Room.databaseBuilder(context, MiloDatabase::class.java, "mymilo.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
                 .build()
     }
