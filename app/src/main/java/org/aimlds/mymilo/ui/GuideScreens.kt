@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -65,10 +64,14 @@ private fun SubScreen(
 
 @Composable
 fun SkillsScreen(vm: MainViewModel) {
+    val workspace by vm.workspaceSkill.collectAsState()
+    if (workspace != null) {
+        SkillWorkspace(workspace!!, vm)
+        return
+    }
     val catalog by vm.skillCatalog.collectAsState()
     val pins by vm.pinnedSkills.collectAsState()
     var query by remember { mutableStateOf("") }
-    var selected by remember { mutableStateOf<SkillEntity?>(null) }
 
     SubScreen(
         title = "Skills",
@@ -119,7 +122,7 @@ fun SkillsScreen(vm: MainViewModel) {
                 items(pinned, key = { "pin-" + it.name }) { s ->
                     SkillRow(s, pins.contains(s.name),
                         onStar = { vm.togglePin(s.name) },
-                        onTap = { selected = s })
+                        onTap = { vm.openWorkspace(s) })
                 }
             }
             for (cat in orderedCats) {
@@ -133,7 +136,7 @@ fun SkillsScreen(vm: MainViewModel) {
                 items(byCategory[cat].orEmpty(), key = { it.name }) { s ->
                     SkillRow(s, pins.contains(s.name),
                         onStar = { vm.togglePin(s.name) },
-                        onTap = { selected = s })
+                        onTap = { vm.openWorkspace(s) })
                 }
             }
             if (filtered.isEmpty() && catalog.isNotEmpty()) {
@@ -147,55 +150,8 @@ fun SkillsScreen(vm: MainViewModel) {
             }
         }
     }
-
-    selected?.let { s ->
-        var prompt by remember(s.name) { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { selected = null },
-            title = { Text(humanSkillName(s.name)) },
-            text = {
-                Column {
-                    Text(
-                        s.blurb.ifBlank { s.description },
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    if (s.example.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Example: “${s.example}”",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme
-                                .onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = prompt,
-                        onValueChange = { prompt = it },
-                        placeholder = {
-                            Text("What should this skill work on?")
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        vm.runSkill(s.name, humanSkillName(s.name), prompt)
-                        selected = null
-                    },
-                    enabled = prompt.isNotBlank(),
-                ) { Text("Run") }
-            },
-            dismissButton = {
-                TextButton(onClick = { selected = null }) {
-                    Text("Cancel")
-                }
-            },
-        )
-    }
 }
+
 
 @Composable
 private fun SkillRow(
@@ -443,4 +399,203 @@ fun AboutScreen(vm: MainViewModel) {
             )
         }
     }
+}
+
+/** Skill Pair Program — the workspace shell.
+ *
+ * A skill is a professional tool and its layout is part of the
+ * tool: tapping a skill opens its own room, shaped by its pair
+ * data (archetype + layout). The frame is one; the shape inside
+ * comes from the skill — steps for engines, the four blocks for
+ * reference skills, inputs it needs stated before it starts.
+ * Skills without pair data yet get the Knowledge shape: what it
+ * does, the example, the full method, and the run box. */
+@Composable
+fun SkillWorkspace(s: SkillEntity, vm: MainViewModel) {
+    androidx.activity.compose.BackHandler { vm.closeWorkspace() }
+    val layout = remember(s.name, s.layoutJson) {
+        try {
+            if (s.layoutJson.isBlank()) null
+            else org.json.JSONObject(s.layoutJson)
+        } catch (e: Exception) {
+            null
+        }
+    }
+    val steps = remember(layout) {
+        val arr = layout?.optJSONArray("steps") ?: return@remember emptyList()
+        (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    val blocks = remember(layout) {
+        val arr = layout?.optJSONArray("blocks") ?: return@remember emptyList()
+        (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    val inputs = remember(layout) {
+        val arr = layout?.optJSONArray("inputs") ?: return@remember emptyList()
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val label = o.optString("label")
+            if (label.isBlank()) null
+            else label to o.optBoolean("required", false)
+        }
+    }
+    var prompt by remember(s.name) { mutableStateOf("") }
+    var showMethod by remember(s.name) { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { vm.closeWorkspace() }) {
+                Text("← Skills")
+            }
+            Column(Modifier.padding(start = 4.dp)) {
+                Text(
+                    humanSkillName(s.name),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    s.category,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        LazyColumn(Modifier.fillMaxSize()) {
+            item {
+                Text(
+                    s.blurb.ifBlank { s.description },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Runs on your Aetheris server — this conversation " +
+                        "stays on your own systems.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (steps.isNotEmpty()) {
+                item {
+                    WorkspaceSection("How it works")
+                }
+                items(steps.size) { i ->
+                    Row(Modifier.padding(vertical = 3.dp)) {
+                        Text(
+                            "${i + 1}.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                        Text(
+                            steps[i],
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+            if (blocks.isNotEmpty()) {
+                item {
+                    WorkspaceSection("Every answer follows this shape")
+                }
+                items(blocks) { b ->
+                    val note = when (b) {
+                        "Answer" -> "the direct answer, cited"
+                        "Why" -> "the reasoning behind it"
+                        "Proof" -> "what would verify it"
+                        "Limits" -> "what it does not cover"
+                        else -> ""
+                    }
+                    Row(Modifier.padding(vertical = 3.dp)) {
+                        Text(
+                            b,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                        if (note.isNotBlank()) {
+                            Text(
+                                note,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            if (inputs.size > 1 || (inputs.size == 1 && s.archetype != "reference")) {
+                item {
+                    WorkspaceSection("Have ready")
+                }
+                items(inputs) { (label, required) ->
+                    Text(
+                        "• $label" + if (required) "" else " (optional)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+            }
+            if (s.example.isNotBlank()) {
+                item {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Example: “${s.example}”",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item {
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    placeholder = {
+                        Text(
+                            when (s.archetype) {
+                                "engine" -> "Tell it what you have — " +
+                                    "it walks the steps with you."
+                                "reference" -> "Ask your question…"
+                                else -> "What should this skill work on?"
+                            }
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        vm.runSkill(s.name, humanSkillName(s.name), prompt)
+                    },
+                    enabled = prompt.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Run ${humanSkillName(s.name)}") }
+            }
+            item {
+                Spacer(Modifier.height(10.dp))
+                TextButton(onClick = { showMethod = !showMethod }) {
+                    Text(
+                        if (showMethod) "Hide the full method"
+                        else "Read the full method"
+                    )
+                }
+                if (showMethod) {
+                    Text(
+                        s.content,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceSection(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+    )
 }

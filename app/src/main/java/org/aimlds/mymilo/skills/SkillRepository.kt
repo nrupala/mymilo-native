@@ -33,6 +33,8 @@ class SkillRepository(
                 category = dto.category ?: "More skills",
                 blurb = dto.blurb ?: (dto.description ?: ""),
                 example = dto.example ?: "",
+                archetype = dto.archetype ?: "knowledge",
+                layoutJson = dto.layout?.toString() ?: "",
             )
         }
         if (skills.isNotEmpty()) {

@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import org.aimlds.mymilo.MiloApp
 import org.aimlds.mymilo.data.MessageEntity
 import org.aimlds.mymilo.data.SessionEntity
+import org.aimlds.mymilo.data.SkillEntity
 import org.aimlds.mymilo.network.ChatMessageDto
 import org.aimlds.mymilo.network.ChatRequest
 import org.aimlds.mymilo.skills.SkillRepository
@@ -48,6 +49,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun showScreen(name: String) {
         _screen.value = name
+        if (name != "skills") _workspaceSkill.value = null
+    }
+
+    /** Skill Pair Program: the skill whose workspace is open
+     *  (null = the catalogue). The workspace replaces the old
+     *  tap-to-run dialog: a skill gets a room, not a pop-up. */
+    private val _workspaceSkill = MutableStateFlow<SkillEntity?>(null)
+    val workspaceSkill: StateFlow<SkillEntity?> = _workspaceSkill
+
+    fun openWorkspace(skill: SkillEntity) {
+        _workspaceSkill.value = skill
+    }
+
+    fun closeWorkspace() {
+        _workspaceSkill.value = null
     }
 
     /** Favorite skills (starred in the catalogue), on-device only. */
@@ -484,7 +500,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun send(text: String) = sendInternal(text, null, null)
+    /** Skill Pair Program: a skill attached to the next message
+     *  via the composer's + button. The next send runs with that
+     *  skill forced, in the current chat; then it detaches. */
+    private val _attachedSkill = MutableStateFlow<SkillEntity?>(null)
+    val attachedSkill: StateFlow<SkillEntity?> = _attachedSkill
+
+    fun attachSkill(skill: SkillEntity) {
+        _attachedSkill.value = skill
+    }
+
+    fun clearAttachedSkill() {
+        _attachedSkill.value = null
+    }
+
+    fun send(text: String) {
+        if (text.isBlank()) return
+        val attached = _attachedSkill.value
+        _attachedSkill.value = null
+        sendInternal(text, attached?.name, null)
+    }
 
     /** v0.8.0: run a skill on purpose (catalogue tap-to-run). The
      *  turn starts a fresh chat titled with the skill's plain name

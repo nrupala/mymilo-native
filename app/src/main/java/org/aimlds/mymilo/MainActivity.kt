@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +69,7 @@ import org.aimlds.mymilo.data.MessageEntity
 import org.aimlds.mymilo.data.SessionEntity
 import org.aimlds.mymilo.network.SourceDto
 import org.aimlds.mymilo.ui.MainViewModel
+import org.aimlds.mymilo.ui.humanSkillName
 import org.aimlds.mymilo.ui.AboutScreen
 import org.aimlds.mymilo.ui.GuideScreen
 import org.aimlds.mymilo.ui.SkillsScreen
@@ -284,6 +286,10 @@ fun ChatScreen(vm: MainViewModel) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
+    // Skill Pair Program: the + attach sheet and its chip.
+    val attached by vm.attachedSkill.collectAsState()
+    val catalog by vm.skillCatalog.collectAsState()
+    var showAttach by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -518,6 +524,60 @@ fun ChatScreen(vm: MainViewModel) {
                 }
             },
         )
+    }
+
+    // Skill Pair Program: + opens the skill picker sheet.
+    if (showAttach) {
+        var attachQuery by remember { mutableStateOf("") }
+        ModalBottomSheet(onDismissRequest = { showAttach = false }) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    "Run a skill with your next message",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = attachQuery,
+                    onValueChange = { attachQuery = it },
+                    placeholder = { Text("Search skills") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                val attachList = if (attachQuery.isBlank()) {
+                    catalog
+                } else {
+                    catalog.filter {
+                        it.name.contains(attachQuery, ignoreCase = true) ||
+                            it.blurb.contains(
+                                attachQuery, ignoreCase = true
+                            )
+                    }
+                }
+                LazyColumn(Modifier.fillMaxHeight(0.6f)) {
+                    items(attachList, key = { it.name }) { sk ->
+                        Column(
+                            Modifier.fillMaxWidth().clickable {
+                                vm.attachSkill(sk)
+                                showAttach = false
+                            }.padding(vertical = 10.dp)
+                        ) {
+                            Text(
+                                humanSkillName(sk.name),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                sk.blurb.ifBlank { sk.description },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Auto-update prompt.
@@ -988,11 +1048,34 @@ fun ChatScreen(vm: MainViewModel) {
                             ),
                         )
                     }
+                    if (attached != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Using: " +
+                                    humanSkillName(attached!!.name),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = androidx.compose.ui.text.font
+                                    .FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(
+                                onClick = { vm.clearAttachedSkill() }
+                            ) { Text("✕ Remove") }
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         val listeningNow2 = listeningNow
+                        Button(
+                            onClick = { showAttach = true },
+                        ) { Text("+") }
+                        Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = {
                                 if (listeningNow2) vm.stopDictation()

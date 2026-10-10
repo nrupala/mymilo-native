@@ -82,7 +82,7 @@ interface SettingDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class, SkillEntity::class, SettingEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class MiloDatabase : RoomDatabase() {
@@ -117,9 +117,21 @@ abstract class MiloDatabase : RoomDatabase() {
             }
         }
 
+        /** v3 → v4 (Skill Pair Program): skills gain pair data. */
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE skills ADD COLUMN archetype TEXT NOT NULL DEFAULT 'knowledge'"
+                )
+                db.execSQL(
+                    "ALTER TABLE skills ADD COLUMN layoutJson TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         fun build(context: Context): MiloDatabase =
             Room.databaseBuilder(context, MiloDatabase::class.java, "mymilo.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .build()
     }

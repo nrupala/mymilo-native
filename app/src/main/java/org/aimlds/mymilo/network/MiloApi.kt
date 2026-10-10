@@ -62,6 +62,9 @@ data class SkillDto(
     val category: String? = null,
     val blurb: String? = null,
     val example: String? = null,
+    /** Skill Pair Program: archetype frame + layout block (JSON). */
+    val archetype: String? = null,
+    val layout: com.google.gson.JsonObject? = null,
 )
 data class SkillBundleResponse(
     val version: String?,

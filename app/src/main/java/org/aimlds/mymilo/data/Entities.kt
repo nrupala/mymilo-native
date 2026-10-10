@@ -47,6 +47,12 @@ data class SkillEntity(
     val category: String = "More skills",
     val blurb: String = "",
     val example: String = "",
+    /** Skill Pair Program: which archetype frame renders this
+     *  skill's workspace, and its layout block (steps, inputs,
+     *  artifact kind) as JSON from the bundle. Defaults keep
+     *  unpaired skills on the Knowledge frame. */
+    val archetype: String = "knowledge",
+    val layoutJson: String = "",
 )
 
 /** Simple key-value settings (server URL, device token, sync state). */
