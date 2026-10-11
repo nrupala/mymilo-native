@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +46,13 @@ fun egressCaption(source: SourceEntity): String =
 fun egressForKind(kind: String, baseUrl: String): String = when (kind) {
     "aetheris" ->
         "Your own server. Chats sent here stay on your systems."
+    "pipavia" ->
+        "Your company — pipavia.com, the house behind Conduit."
+    "conduit" ->
+        "Your own service — Pipavia's Conduit, running on " +
+            "Cloudflare. When Milo uses it, your question " +
+            "goes to Conduit and live company filings data " +
+            "comes back. Your key stays in the vault."
     "openrouter" ->
         "Chats sent here go to OpenRouter and the company behind " +
             "the model — they leave your systems. The provider's " +
@@ -91,6 +99,8 @@ fun egressForKind(kind: String, baseUrl: String): String = when (kind) {
 }
 
 private fun kindLabel(kind: String): String = when (kind) {
+    "pipavia" -> "Pipavia"
+    "conduit" -> "Conduit (Pipavia)"
     "openrouter" -> "OpenRouter"
     "opencode" -> "OpenCode Zen"
     "aetheris" -> "Your server"
@@ -224,8 +234,17 @@ fun SourcesScreen(vm: MainViewModel) {
                         }
                     }
                     Text(
-                        "${kindLabel(source.kind)} · answers with " +
-                            source.model.ifBlank { "(no model set)" },
+                        if (source.kind == "conduit") {
+                            "${kindLabel(source.kind)} · connector " +
+                                "— live SEC filings & fundamentals " +
+                                "data for Milo's tasks"
+                        } else {
+                            "${kindLabel(source.kind)} · answers " +
+                                "with " +
+                                source.model.ifBlank {
+                                    "(no model set)"
+                                }
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -459,6 +478,9 @@ private fun SourceEditDialog(
     var name by remember { mutableStateOf(source.name) }
     var baseUrl by remember { mutableStateOf(source.baseUrl) }
     var model by remember { mutableStateOf(source.model) }
+    // A connector (Conduit) feeds data to tasks — it has no
+    // chat model, so the model field doesn't apply.
+    val isConnector = source.kind == "conduit"
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -475,17 +497,38 @@ private fun SourceEditDialog(
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = baseUrl, onValueChange = { baseUrl = it },
-                    label = { Text("Address") },
+                    label = {
+                        Text(
+                            if (isConnector) {
+                                "Connector address"
+                            } else {
+                                "Address"
+                            }
+                        )
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = model, onValueChange = { model = it },
-                    label = { Text("Model it answers with") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (isConnector) {
+                    Text(
+                        "Conduit is a connector: it feeds live " +
+                            "data to Milo's tasks. It doesn't " +
+                            "answer chats itself, so it won't " +
+                            "appear in the brain picker — add " +
+                            "your Conduit key after saving and " +
+                            "Milo can call it when a task needs " +
+                            "filings data.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = model, onValueChange = { model = it },
+                        label = { Text("Model it answers with") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     egressCaption(source.copy(name = name, baseUrl = baseUrl)),
@@ -504,7 +547,7 @@ private fun SourceEditDialog(
                     )
                 },
                 enabled = name.isNotBlank() && baseUrl.isNotBlank() &&
-                    model.isNotBlank(),
+                    (isConnector || model.isNotBlank()),
             ) { Text("Save") }
         },
         dismissButton = {
@@ -576,9 +619,50 @@ fun DataControlsScreen(vm: MainViewModel) {
  * plain words, where chats sent there go.
  */
 @Composable
+private fun PresetCard(
+    preset: ProviderPreset,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Column(
+            Modifier.padding(
+                horizontal = 14.dp, vertical = 12.dp,
+            ),
+        ) {
+            Text(
+                preset.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                preset.blurb,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                egressForKind(preset.kind, preset.baseUrl),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme
+                    .colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
 fun AddSourceScreen(vm: MainViewModel) {
     var picked by remember { mutableStateOf<ProviderPreset?>(null) }
     var custom by remember { mutableStateOf(false) }
+    var showPipavia by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     SubScreen(
         title = "Add a source",
@@ -586,39 +670,35 @@ fun AddSourceScreen(vm: MainViewModel) {
         vm = vm,
     ) {
         LazyColumn {
-            items(PROVIDER_PRESETS) { preset ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { picked = preset },
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                ) {
-                    Column(
-                        Modifier.padding(
-                            horizontal = 14.dp, vertical = 12.dp,
-                        ),
-                    ) {
-                        Text(
-                            preset.name,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            preset.blurb,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            egressForKind(preset.kind, preset.baseUrl),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme
-                                .colorScheme.onSurfaceVariant,
-                        )
+            // ── Yours first (v0.14.0): the owner's own house ──
+            item {
+                Text(
+                    "Yours",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            items(YOUR_PRESETS) { preset ->
+                PresetCard(preset) {
+                    if (preset.kind == "pipavia") {
+                        showPipavia = true
+                    } else {
+                        picked = preset
                     }
                 }
+            }
+            item {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "More providers",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Spacer(Modifier.height(8.dp))
+            }
+            items(PROVIDER_PRESETS) { preset ->
+                PresetCard(preset) { picked = preset }
             }
             item {
                 Surface(
@@ -679,6 +759,42 @@ fun AddSourceScreen(vm: MainViewModel) {
                 )
                 custom = false
                 vm.showScreen("sources")
+            },
+        )
+    }
+    if (showPipavia) {
+        AlertDialog(
+            onDismissRequest = { showPipavia = false },
+            title = { Text("Pipavia") },
+            text = {
+                Text(
+                    "Pipavia is your company — the house " +
+                        "behind Conduit and your other " +
+                        "products. Its services appear in " +
+                        "this list as their own cards: " +
+                        "Conduit, above, is the first. There " +
+                        "is nothing to add here — Pipavia " +
+                        "itself is the company, not a source.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showPipavia = false
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(
+                                "https://pipavia.com"
+                            ),
+                        )
+                    )
+                }) { Text("Visit pipavia.com") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPipavia = false }) {
+                    Text("Done")
+                }
             },
         )
     }

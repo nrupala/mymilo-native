@@ -15,6 +15,33 @@ data class ProviderPreset(
     val blurb: String,
 )
 
+/**
+ * Yours first (v0.14.0) — the owner's own house leads the
+ * list, by standing rule: Pipavia (the company) and Conduit
+ * (its connector marketplace). Conduit is a connector, not a
+ * chat model: it feeds live data to Milo's tasks, so it is
+ * added as a source with a key, but never offered as a
+ * brain.
+ */
+val YOUR_PRESETS: List<ProviderPreset> = listOf(
+    ProviderPreset(
+        "pipavia", "Pipavia",
+        "https://pipavia.com", "",
+        "Your company — the house behind Conduit and your " +
+            "other products.",
+    ),
+    ProviderPreset(
+        "conduit", "Conduit — Filings & Fundamentals",
+        "https://conduit-filings-fundamentals." +
+            "nrupalakolkar.workers.dev/mcp",
+        "",
+        "Your own connector marketplace, by Pipavia: 24 " +
+            "tools of live SEC filings and fundamentals " +
+            "data. A connector feeds data to Milo — it " +
+            "isn't a chat brain.",
+    ),
+)
+
 val PROVIDER_PRESETS: List<ProviderPreset> = listOf(
     ProviderPreset(
         "openrouter", "OpenRouter",

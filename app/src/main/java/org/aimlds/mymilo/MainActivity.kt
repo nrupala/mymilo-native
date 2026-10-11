@@ -846,7 +846,9 @@ fun ChatScreen(vm: MainViewModel) {
                     "aetheris", "Aetheris",
                     "Your own server. Stays on your systems.",
                 )
-                brainSources.filter { it.kind != "aetheris" }
+                brainSources.filter {
+                    it.kind != "aetheris" && it.kind != "conduit"
+                }
                     .forEach { src ->
                         val hasKey = brainTokens.any {
                             it.sourceId == src.id

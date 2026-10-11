@@ -97,6 +97,17 @@ gradle wrapper --gradle-version 8.7   # once
   message, in the current chat.
 - Denser type scale across the app (DESIGN-SYSTEM.md).
 
+## v0.14.0 — Yours first
+- The Add-a-source list now leads with a **Yours**
+  section: **Pipavia** — your company, the house behind
+  your products — and **Conduit**, your own connector
+  marketplace (24 tools of live SEC filings &
+  fundamentals data).
+- Conduit is added as what it is: a connector, not a
+  chat brain. Save your Conduit key in the vault like
+  any other; it never appears in the brain picker, and
+  its card says plainly where data goes.
+
 ## v0.13.0 — A model that lives on your phone
 - **Models on this phone** (Sources & keys): your phone
   is measured first — chip, memory, free space — and
