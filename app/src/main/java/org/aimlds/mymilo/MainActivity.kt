@@ -282,7 +282,6 @@ private fun SessionRow(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 /**
  * The phone-action confirmation card (v0.12.0). Milo
  * prepares, the user taps. Permission asks happen here, in
@@ -478,6 +477,7 @@ private fun PhoneActionDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(vm: MainViewModel) {
     val sessions by vm.sessions.collectAsState()
