@@ -493,15 +493,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
     }
 
+    // Local-model state — declared ABOVE the init block on
+    // purpose. refreshLocalModels() runs during startup and
+    // properties initialize in declaration order; in builds
+    // 21-36 these flows lived in the local-models section far
+    // below, so the startup refresh wrote to them before they
+    // existed and every launch crashed (fixed v0.14.5).
+    private val _deviceInfo =
+        MutableStateFlow<LocalModels.DeviceInfo?>(null)
+    val deviceInfo: StateFlow<LocalModels.DeviceInfo?> = _deviceInfo
+
+    private val _modelStates =
+        MutableStateFlow<List<ModelUiState>>(emptyList())
+    val modelStates: StateFlow<List<ModelUiState>> = _modelStates
+
+    private val _activeLocalModel =
+        MutableStateFlow<LocalModel?>(null)
+    val activeLocalModel: StateFlow<LocalModel?> = _activeLocalModel
+
     init {
         viewModelScope.launch {
-            // Local-model refresh runs inside this coroutine, NOT
-            // synchronously before it: refreshLocalModels() writes
-            // flows (_deviceInfo and friends) declared in the
-            // local-models section far below this block, and
-            // properties initialize in declaration order — calling
-            // it during construction touched them while still null
-            // and crashed every launch since build 21 (v0.14.4 fix).
+            // Local-model refresh first. This is safe during
+            // startup only because the flows it writes are now
+            // declared above this block (see the note there) —
+            // viewModelScope dispatches on Main.immediate, which
+            // runs this block inline on the main thread, so
+            // "inside a coroutine" alone never deferred it past
+            // construction (the v0.14.4 attempt proved that).
             refreshLocalModels()
             _skin.value = Skin.fromName(db.settings().get("skin"))
             _ttsEnabled.value = db.settings().get("tts_enabled") != "false"
@@ -1045,14 +1063,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val isBest: Boolean,
     )
 
-    private val _deviceInfo =
-        MutableStateFlow<LocalModels.DeviceInfo?>(null)
-    val deviceInfo: StateFlow<LocalModels.DeviceInfo?> = _deviceInfo
-
-    private val _modelStates =
-        MutableStateFlow<List<ModelUiState>>(emptyList())
-    val modelStates: StateFlow<List<ModelUiState>> = _modelStates
-
     /** Model id → percent downloaded (absent = not running). */
     private val _downloads =
         MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -1062,10 +1072,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         MutableStateFlow<Map<String, String>>(emptyMap())
     val downloadErrors: StateFlow<Map<String, String>> =
         _downloadErrors
-
-    private val _activeLocalModel =
-        MutableStateFlow<LocalModel?>(null)
-    val activeLocalModel: StateFlow<LocalModel?> = _activeLocalModel
 
     private val cancelledDownloads = mutableSetOf<String>()
 

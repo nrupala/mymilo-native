@@ -97,6 +97,18 @@ gradle wrapper --gradle-version 8.7   # once
   message, in the current chat.
 - Denser type scale across the app (DESIGN-SYSTEM.md).
 
+## v0.14.5 — The launch crash, fixed at the root
+Build 36's half-fix taught the rest of the lesson: moving
+the startup refresh into the init coroutine did not defer
+it, because viewModelScope dispatches on
+Dispatchers.Main.immediate — the block runs inline during
+construction. So v0.14.5 removes the hazard itself: the
+three local-model state flows the startup refresh writes
+are now declared above the init block, initialized before
+any startup code can touch them, whatever the dispatch
+timing. A full audit of post-init declarations found no
+other instance of the pattern.
+
 ## v0.14.4 — The launch crash, named and fixed
 Build 34's crash trap caught it and the R8 mapping (now
 uploaded by CI for every build) named it exactly: the
