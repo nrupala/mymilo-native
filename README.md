@@ -28,6 +28,17 @@ The **real** MyMilo Android app — native Kotlin, offline-first.
 4. MyMilo server — heavy models + search, when online
 5. Offline + needs server → queued, sent on reconnect
 
+## Quickstart
+
+Install the APK from the latest `build-N` release on GitHub
+Releases — every build is release-signed, so updates install in
+place over older ones. On first run, connect the app to your
+MyMilo server with your device token; from then on chats,
+history, skills, and local tools work offline, and the app
+escalates to the server (or to an on-device model, once you
+download one under Sources & keys) only when a request needs
+more than the phone.
+
 ## Build
 
 CI (GitHub Actions) builds the **release-signed** APK on every push
@@ -39,6 +50,18 @@ build:
 gradle wrapper --gradle-version 8.7   # once
 ./gradlew assembleDebug
 ```
+
+A local build also needs the on-device engine sources and the
+NDK — see CONTRIBUTING.md for the full one-time setup.
+
+### Testing
+
+There is no automated test suite in this repo yet — no unit or
+instrumented tests. The ship gates are CI's: the release build
+must compile and package, and a CI step verifies that every
+native library in the APK is 16 KB-aligned before the release
+is published (v0.14.1). Behaviour is verified on a real
+device. CONTRIBUTING.md has the details.
 
 ## Status
 

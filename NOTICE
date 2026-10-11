@@ -1,0 +1,14 @@
+MyMilo Native (Android)
+
+Owned by Nrupal Akolkar · Built with Muse by Meta
+
+Third-party components used by this project remain under their
+respective licenses. In particular:
+
+- llama.cpp (ggml-org) provides the on-device inference engine.
+  It is fetched at build time at a pinned tag (b11541) and is
+  never vendored into this repository.
+- The Inter typeface is bundled under app/src/main/res/font/.
+- AndroidX, Room, Retrofit, OkHttp, WorkManager, and the Kotlin
+  coroutines libraries are consumed as published dependencies
+  (see app/build.gradle.kts).
