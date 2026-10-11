@@ -87,7 +87,47 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        vm = androidx.lifecycle.ViewModelProvider(this)[MainViewModel::class.java]
+        // If the last launch died, show its crash report
+        // instead of starting blind (v0.14.3). The reader
+        // can copy it or send a photo, then clear it and
+        // open Milo normally.
+        val crashReport = org.aimlds.mymilo.CrashLog.read(this)
+        if (crashReport.isNotBlank()) {
+            setContent {
+                MaterialTheme {
+                    androidx.compose.material3.Surface(
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        CrashReportScreen(
+                            report = crashReport,
+                            onCopy = {
+                                val cm = getSystemService(
+                                    android.content.ClipboardManager::class.java,
+                                )
+                                cm?.setPrimaryClip(
+                                    android.content.ClipData.newPlainText(
+                                        "MyMilo crash report", crashReport,
+                                    ),
+                                )
+                            },
+                            onContinue = {
+                                org.aimlds.mymilo.CrashLog.clear(this)
+                                recreate()
+                            },
+                        )
+                    }
+                }
+            }
+            return
+        }
+        vm = try {
+            androidx.lifecycle.ViewModelProvider(this)[MainViewModel::class.java]
+        } catch (e: Throwable) {
+            org.aimlds.mymilo.CrashLog.record(
+                this, "ViewModel creation", e,
+            )
+            throw e
+        }
         handleIntent(intent)
         setContent {
             val skin by vm.skin.collectAsState()
@@ -454,6 +494,55 @@ private fun PhoneActionDialog(
                 }
             },
         )
+    }
+}
+
+
+/** The crash-report screen (v0.14.3): shown on the
+ *  launch after a fatal error, before anything else.
+ *  Plain words, the report itself, two ways out. */
+@Composable
+private fun CrashReportScreen(
+    report: String,
+    onCopy: () -> Unit,
+    onContinue: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp)
+    ) {
+        Text(
+            "Milo hit a bug last time it opened",
+            style = MaterialTheme.typography.titleLarge,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "This report says exactly what went wrong. " +
+                "Copy it and send it to your developer - " +
+                "or just take a photo of this screen.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(12.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Text(
+                report,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row {
+            Button(onClick = onCopy) { Text("Copy report") }
+            Spacer(Modifier.width(12.dp))
+            TextButton(onClick = onContinue) {
+                Text("Clear and open Milo")
+            }
+        }
     }
 }
 

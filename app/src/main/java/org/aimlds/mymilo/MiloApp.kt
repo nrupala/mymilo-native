@@ -19,8 +19,17 @@ class MiloApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        db = MiloDatabase.build(this)
-        vault = org.aimlds.mymilo.vault.Vault(this)
-        api = MiloApiClient(this)
+        // The crash trap goes in before anything else can
+        // fail, and the singletons are guarded so a startup
+        // failure is recorded, not just fatal (v0.14.3).
+        CrashLog.install(this)
+        try {
+            db = MiloDatabase.build(this)
+            vault = org.aimlds.mymilo.vault.Vault(this)
+            api = MiloApiClient(this)
+        } catch (e: Throwable) {
+            CrashLog.record(this, "MiloApp.onCreate", e)
+            throw e
+        }
     }
 }

@@ -97,6 +97,18 @@ gradle wrapper --gradle-version 8.7   # once
   message, in the current chat.
 - Denser type scale across the app (DESIGN-SYSTEM.md).
 
+## v0.14.3 — Crash reporter
+- **The app now catches its own fatal errors.** After a
+  launch crash reached a real phone as an unexplained
+  "this app has a bug" dialog (builds 32/33 installed
+  fine but died at open), this build installs a crash
+  trap before anything else runs: a fatal error is
+  written to a report file, and the NEXT launch shows
+  that report on screen — readable and copyable —
+  instead of starting blind. Startup singletons and
+  ViewModel creation are also guarded so their failures
+  are recorded with the full cause chain.
+
 ## v0.14.2 — Installs clean: two permissions removed
 - **Fixed (round two): Android's safety check (Play
   Protect) was blocking the install itself.** v0.14.1
