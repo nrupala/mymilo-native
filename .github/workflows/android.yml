@@ -101,6 +101,16 @@ jobs:
           name: mymilo-native-release-apk
           path: app/build/outputs/apk/release/app-release.apk
 
+      # The R8 mapping de-obfuscates crash reports (the
+      # in-app crash trap's stack traces use the runner's
+      # names). Kept from v0.14.3 on: a crash report
+      # without its mapping is only half an answer.
+      - name: Upload R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: mymilo-r8-mapping
+          path: app/build/outputs/mapping/release/mapping.txt
+
       - name: Create Release with APK
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
