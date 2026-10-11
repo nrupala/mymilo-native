@@ -34,7 +34,7 @@ import org.aimlds.mymilo.data.SkillEntity
 
 /** Shared chrome for the Guide & About sub-screens. */
 @Composable
-private fun SubScreen(
+fun SubScreen(
     title: String,
     subtitle: String,
     vm: MainViewModel,

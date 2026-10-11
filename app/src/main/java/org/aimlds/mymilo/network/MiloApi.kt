@@ -116,6 +116,8 @@ class MiloApiClient(private val context: Context) {
 
     private suspend fun settings() = (context.applicationContext as org.aimlds.mymilo.MiloApp).db.settings()
 
+    private fun vault() = (context.applicationContext as org.aimlds.mymilo.MiloApp).vault
+
     suspend fun serverUrl(): String {
         val saved = settings().get("server_url")
         if (saved == null) return "https://mymilo-api.aimlds.org"
@@ -132,17 +134,46 @@ class MiloApiClient(private val context: Context) {
         return saved
     }
 
-    suspend fun token(): String = settings().get("device_token") ?: ""
+    /** The Aetheris device token is Vault entry #1 (Sources &
+     *  Vault): the vault copy wins; the legacy settings copy is
+     *  only a fallback until the one-time migration moves it. */
+    suspend fun token(): String =
+        vault().get(org.aimlds.mymilo.vault.Vault.AETHERIS_SLOT)
+            ?: settings().get("device_token") ?: ""
+
+    /** One-time move of the device token from settings into the
+     *  Keystore vault. Verifies the copy before clearing the old
+     *  one; safe to call on every start (no-ops once moved). */
+    suspend fun migrateTokenToVault() {
+        val legacy = settings().get("device_token") ?: ""
+        if (legacy.isBlank()) return
+        if (vault().get(org.aimlds.mymilo.vault.Vault.AETHERIS_SLOT) == legacy) {
+            settings().put(SettingEntity("device_token", ""))
+            return
+        }
+        if (vault().put(org.aimlds.mymilo.vault.Vault.AETHERIS_SLOT, legacy) &&
+            vault().get(org.aimlds.mymilo.vault.Vault.AETHERIS_SLOT) == legacy
+        ) {
+            settings().put(SettingEntity("device_token", ""))
+        }
+    }
 
     suspend fun setServerAndToken(url: String, token: String) {
         val s = settings()
         s.put(SettingEntity("server_url", url))
-        s.put(SettingEntity("device_token", token))
+        // Vault-first; settings only if the vault can't write.
+        if (!vault().put(org.aimlds.mymilo.vault.Vault.AETHERIS_SLOT, token)) {
+            s.put(SettingEntity("device_token", token))
+        } else {
+            s.put(SettingEntity("device_token", ""))
+        }
         service = null // rebuild with new base URL
     }
 
     suspend fun clearToken() {
+        vault().remove(org.aimlds.mymilo.vault.Vault.AETHERIS_SLOT)
         settings().put(SettingEntity("device_token", ""))
+        service = null
     }
 
     suspend fun service(): MiloService {

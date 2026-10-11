@@ -14,6 +14,8 @@ import org.aimlds.mymilo.MiloApp
 import org.aimlds.mymilo.data.MessageEntity
 import org.aimlds.mymilo.data.SessionEntity
 import org.aimlds.mymilo.data.SkillEntity
+import org.aimlds.mymilo.data.SourceEntity
+import org.aimlds.mymilo.data.SourceTokenEntity
 import org.aimlds.mymilo.network.ChatMessageDto
 import org.aimlds.mymilo.network.ChatRequest
 import org.aimlds.mymilo.skills.SkillRepository
@@ -33,6 +35,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val milo = app as MiloApp
     private val db = milo.db
     private val api = milo.api
+    private val vault = milo.vault
     private val skills = SkillRepository(db.skills(), api)
 
     val sessions = db.sessions().observeAll()
@@ -88,6 +91,137 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      *  release needed to change it). */
     private val _supportUrl = MutableStateFlow("")
     val supportUrl: StateFlow<String> = _supportUrl
+
+    // ── Sources & Vault (v0.10.0) ─────────────────────────────
+    /** Every source (Aetheris first, then the user's own). */
+    val sourcesList = db.sources().observeSources()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Token rows for all sources (labels + active flags only —
+     *  the secrets themselves never leave the vault). */
+    val tokenRows = db.sources().observeTokens()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Whether Vault entry #1 (the Aetheris device token) exists. */
+    private val _aetherisKeySaved = MutableStateFlow(false)
+    val aetherisKeySaved: StateFlow<Boolean> = _aetherisKeySaved
+
+    /** The brain answering the open chat: phone | aetheris |
+     *  src:<sourceId>. Synced from the session row on open, and
+     *  the starting choice for a new chat. */
+    private val _currentBrain = MutableStateFlow("aetheris")
+    val currentBrain: StateFlow<String> = _currentBrain
+
+    fun brainName(brain: String): String = when {
+        brain == "phone" -> "This phone"
+        brain == "aetheris" -> "Aetheris"
+        brain.startsWith("src:") ->
+            sourcesList.value.firstOrNull {
+                it.id == brain.removePrefix("src:")
+            }?.name ?: "A source"
+        else -> "Aetheris"
+    }
+
+    fun setBrain(brain: String, alsoDefault: Boolean = false) {
+        _currentBrain.value = brain
+        viewModelScope.launch {
+            if (alsoDefault) {
+                db.settings().put(
+                    org.aimlds.mymilo.data.SettingEntity("default_brain", brain)
+                )
+            }
+            val sid = _currentSessionId.value ?: return@launch
+            val s = db.sessions().get(sid) ?: return@launch
+            if (s.brain != brain) db.sessions().upsert(s.copy(brain = brain))
+        }
+    }
+
+    fun addSource(name: String, kind: String, baseUrl: String, model: String) {
+        viewModelScope.launch {
+            db.sources().upsertSource(
+                SourceEntity(
+                    id = UUID.randomUUID().toString().replace("-", "").take(12),
+                    name = name.trim().ifBlank { "Source" },
+                    kind = kind,
+                    baseUrl = baseUrl.trim().trimEnd('/'),
+                    model = model.trim(),
+                    createdAt = System.currentTimeMillis(),
+                )
+            )
+        }
+    }
+
+    fun saveSource(source: SourceEntity) {
+        viewModelScope.launch { db.sources().upsertSource(source) }
+    }
+
+    fun deleteSource(source: SourceEntity) {
+        viewModelScope.launch {
+            db.sources().tokensFor(source.id).forEach {
+                vault.remove(
+                    org.aimlds.mymilo.vault.Vault.tokenSlot(it.id)
+                )
+            }
+            db.sources().deleteTokensFor(source.id)
+            db.sources().deleteSource(source.id)
+            if (_currentBrain.value == "src:${source.id}") {
+                setBrain("aetheris")
+            }
+        }
+    }
+
+    fun addToken(sourceId: String, label: String, secret: String) {
+        viewModelScope.launch {
+            val existing = db.sources().tokensFor(sourceId)
+            val entry = SourceTokenEntity(
+                id = UUID.randomUUID().toString().replace("-", "").take(12),
+                sourceId = sourceId,
+                label = label.trim().ifBlank { "Key" },
+                active = existing.isEmpty(),
+                createdAt = System.currentTimeMillis(),
+            )
+            if (vault.put(
+                    org.aimlds.mymilo.vault.Vault.tokenSlot(entry.id), secret.trim()
+                )
+            ) {
+                db.sources().upsertToken(entry)
+            }
+        }
+    }
+
+    fun replaceToken(entry: SourceTokenEntity, secret: String) {
+        vault.put(org.aimlds.mymilo.vault.Vault.tokenSlot(entry.id), secret.trim())
+    }
+
+    fun setActiveToken(entry: SourceTokenEntity) {
+        viewModelScope.launch {
+            db.sources().tokensFor(entry.sourceId).forEach {
+                if (it.active != (it.id == entry.id)) {
+                    db.sources().upsertToken(it.copy(active = it.id == entry.id))
+                }
+            }
+        }
+    }
+
+    fun deleteToken(entry: SourceTokenEntity) {
+        viewModelScope.launch {
+            vault.remove(org.aimlds.mymilo.vault.Vault.tokenSlot(entry.id))
+            db.sources().deleteToken(entry.id)
+            if (entry.active) {
+                db.sources().tokensFor(entry.sourceId).firstOrNull()
+                    ?.let { db.sources().upsertToken(it.copy(active = true)) }
+            }
+        }
+    }
+
+    /** The active key for a source, read from the vault at call
+     *  time only. Null when the source has no usable key. */
+    private suspend fun activeSecret(sourceId: String): String? {
+        val tokens = db.sources().tokensFor(sourceId)
+        val entry = tokens.firstOrNull { it.active } ?: tokens.firstOrNull()
+            ?: return null
+        return vault.get(org.aimlds.mymilo.vault.Vault.tokenSlot(entry.id))
+    }
 
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId
@@ -377,6 +511,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
                 else -> clearDownloaded()
             }
+            // Sources & Vault: the device token moves into the
+            // Keystore vault (entry #1), and Aetheris takes its
+            // place in the sources list like every other source.
+            api.migrateTokenToVault()
+            _aetherisKeySaved.value =
+                vault.contains(org.aimlds.mymilo.vault.Vault.AETHERIS_SLOT)
+            if (db.sources().source("aetheris") == null) {
+                db.sources().upsertSource(
+                    SourceEntity(
+                        id = "aetheris",
+                        name = "Aetheris",
+                        kind = "aetheris",
+                        baseUrl = api.serverUrl(),
+                        model = "auto",
+                        createdAt = System.currentTimeMillis(),
+                    )
+                )
+            }
+            _currentBrain.value =
+                db.settings().get("default_brain") ?: "aetheris"
             val hasToken = api.token().isNotBlank()
             _connected.value = hasToken
             skills.loadFromDb()
@@ -473,6 +627,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val cfg = api.service().clientConfig() // validates the token
                 _supportUrl.value = cfg.support_url ?: ""
                 _connected.value = true
+                _aetherisKeySaved.value = true
                 onResult(true, "Connected")
                 refreshFromServer()
             } catch (e: Exception) {
@@ -481,22 +636,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Sources screen: replace the Aetheris device key in the
+     *  vault. Validated against the server before it's kept
+     *  (connect() only marks success after the server answers). */
+    fun replaceAetherisKey(token: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val url = try { api.serverUrl() } catch (e: Exception) { "" }
+            connect(url, token, onResult)
+        }
+    }
+
     fun disconnect() {
         viewModelScope.launch {
             api.clearToken()
             _connected.value = false
+            _aetherisKeySaved.value = false
         }
     }
 
     fun newSession() {
         _currentSessionId.value = null
         _messages.value = emptyList()
+        viewModelScope.launch {
+            _currentBrain.value =
+                db.settings().get("default_brain") ?: "aetheris"
+        }
     }
 
     fun openSession(id: String) {
         _currentSessionId.value = id
         viewModelScope.launch {
             _messages.value = db.messages().forSession(id)
+            db.sessions().get(id)?.let { _currentBrain.value = it.brain }
         }
     }
 
@@ -531,6 +702,80 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         sendInternal(prompt, skillName, humanName)
     }
 
+    /** Sources & Vault: a chat whose brain is one of the user's
+     *  own sources is answered by that provider directly, with
+     *  the key read from the vault at call time. A chosen skill
+     *  still leads — its instructions ride as the system prompt,
+     *  since the skill text lives on this phone. */
+    private suspend fun sendViaSource(
+        sid: String,
+        sourceId: String,
+        forcedSkill: String?,
+    ) {
+        val source = db.sources().source(sourceId)
+        val secret = if (source == null) null else activeSecret(sourceId)
+        if (source == null || secret == null) {
+            addAssistant(
+                sid,
+                "That source has no working key saved. Open " +
+                    "Sources & keys from the menu and add one — " +
+                    "your message is kept here.",
+                "error",
+            )
+            return
+        }
+        if (!isOnline()) {
+            addAssistant(
+                sid,
+                "You're offline, so ${source.name} can't be " +
+                    "reached. Your message is kept here.",
+                "queued",
+            )
+            return
+        }
+        _status.value = "Asking ${source.name}…"
+        _thinking.value = true
+        try {
+            val msgs = mutableListOf<ChatMessageDto>()
+            if (forcedSkill != null) {
+                val skill = db.skills().all()
+                    .firstOrNull { it.name == forcedSkill }
+                if (skill != null && skill.content.isNotBlank()) {
+                    msgs.add(ChatMessageDto("system", skill.content))
+                    _status.value = "Skill: $forcedSkill"
+                }
+            }
+            db.messages().forSession(sid)
+                .filter { it.role == "user" || it.role == "assistant" }
+                .takeLast(20)
+                .forEach { msgs.add(ChatMessageDto(it.role, it.content)) }
+            val reply = org.aimlds.mymilo.network.DirectChat.chat(
+                source.baseUrl, secret, source.model, msgs
+            )
+            val sourcesJson = com.google.gson.Gson().toJson(
+                listOf(
+                    org.aimlds.mymilo.network.SourceDto(
+                        "model", "Your key · ${source.model}",
+                        null, source.name,
+                    )
+                )
+            )
+            addAssistant(sid, reply, "source", sourcesJson)
+            _status.value = ""
+        } catch (e: Exception) {
+            addAssistant(
+                sid,
+                "Couldn't get an answer from ${source.name}: " +
+                    (e.message ?: "unknown error") +
+                    " Your message is kept here.",
+                "error",
+            )
+            _status.value = ""
+        } finally {
+            _thinking.value = false
+        }
+    }
+
     private fun sendInternal(
         text: String,
         forcedSkill: String?,
@@ -551,6 +796,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         createdAt = System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis(),
                         dirty = true,
+                        brain = _currentBrain.value,
                     )
                 )
                 _currentSessionId.value = sid
@@ -566,6 +812,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
             db.messages().insert(userMsg)
             _messages.value = db.messages().forSession(sid)
+
+            // ── Sources & Vault: a non-Aetheris brain answers
+            // on its own path. The choice is the user's, made in
+            // the open — never a silent reroute. ──
+            val brain = db.sessions().get(sid)?.brain ?: _currentBrain.value
+            if (brain == "phone") {
+                if (forcedSkill == null) {
+                    val toolReply = LocalTools.tryHandle(trimmed)
+                    if (toolReply != null) {
+                        addAssistant(sid, toolReply, "local-tool")
+                        return@launch
+                    }
+                }
+                addAssistant(
+                    sid,
+                    "This chat is set to This phone only, so " +
+                        "nothing was sent anywhere — and the " +
+                        "on-device tools have no answer for that. " +
+                        "Pick Aetheris or one of your sources " +
+                        "above the message box to have a model " +
+                        "answer.",
+                    "phone",
+                )
+                return@launch
+            }
+            if (brain.startsWith("src:")) {
+                sendViaSource(sid, brain.removePrefix("src:"), forcedSkill)
+                return@launch
+            }
 
             // ── Tier 1: local tools (instant, offline) ──
             // Skipped when a skill was chosen on purpose: the user

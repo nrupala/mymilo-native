@@ -14,10 +14,13 @@ class MiloApp : Application() {
         private set
     lateinit var api: MiloApiClient
         private set
+    lateinit var vault: org.aimlds.mymilo.vault.Vault
+        private set
 
     override fun onCreate() {
         super.onCreate()
         db = MiloDatabase.build(this)
+        vault = org.aimlds.mymilo.vault.Vault(this)
         api = MiloApiClient(this)
     }
 }

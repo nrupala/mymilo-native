@@ -17,6 +17,10 @@ data class SessionEntity(
     val updatedAt: Long,
     /** True if created offline and not yet pushed to the server. */
     val dirty: Boolean = false,
+    /** Sources & Vault: which brain answers in this chat —
+     *  "phone" | "aetheris" | "src:<sourceId>". Chosen per chat,
+     *  always visible above the composer. */
+    val brain: String = "aetheris",
 )
 
 @Entity(tableName = "messages")
@@ -60,4 +64,35 @@ data class SkillEntity(
 data class SettingEntity(
     @PrimaryKey val key: String,
     val value: String,
+)
+
+/**
+ * Sources & Vault: a place Milo can think. Metadata only — the
+ * secret itself lives in the Keystore vault, never in Room.
+ * Kind: aetheris | openrouter | opencode | custom.
+ */
+@Entity(tableName = "sources")
+data class SourceEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val kind: String,
+    /** OpenAI-compatible base, e.g. https://openrouter.ai/api/v1 */
+    val baseUrl: String,
+    /** The model this source answers with (user-editable). */
+    val model: String,
+    val createdAt: Long,
+)
+
+/**
+ * One named key belonging to a source ("work", "personal", …).
+ * Only the label and the active flag live here; the secret is in
+ * the vault under "token:<id>". One active key per source.
+ */
+@Entity(tableName = "source_tokens")
+data class SourceTokenEntity(
+    @PrimaryKey val id: String,
+    val sourceId: String,
+    val label: String,
+    val active: Boolean = false,
+    val createdAt: Long,
 )

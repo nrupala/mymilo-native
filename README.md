@@ -89,6 +89,28 @@ gradle wrapper --gradle-version 8.7   # once
 - v0.8.1: assessment fixes — support link captured at connect
   time; system Back returns to chat from the sub-screens.
 
+## v0.9.x — Skill workspaces
+- Every skill gets a **workspace**: what it does, its steps or
+  answer shape, what to have ready, an example, and a run box —
+  a room fitted to the skill, not a pop-up (Skill Pair Program).
+- The composer's **+ button** attaches a skill to the next
+  message, in the current chat.
+- Denser type scale across the app (DESIGN-SYSTEM.md).
+
+## v0.10.0 — Sources & Vault
+- **One vault for every key:** Android Keystore-encrypted,
+  write-only — a saved key can never be shown again, only
+  replaced or deleted. The Aetheris device key moves into the
+  vault automatically.
+- **Sources & keys:** Aetheris plus your own OpenRouter,
+  OpenCode Zen, or any OpenAI-compatible address — several
+  named keys per source, one in use.
+- **A brain picker on every chat** (This phone · Aetheris ·
+  your sources). Outside sources answer directly from the
+  phone with your key, and every option states — at the point
+  of choice — where your words go. The "Where your data goes"
+  screen lists every destination in plain words.
+
 ## Documentation
 
 The server repo carries the full documentation set — user guide,

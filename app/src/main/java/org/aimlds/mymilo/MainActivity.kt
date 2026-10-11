@@ -70,6 +70,9 @@ import org.aimlds.mymilo.data.SessionEntity
 import org.aimlds.mymilo.network.SourceDto
 import org.aimlds.mymilo.ui.MainViewModel
 import org.aimlds.mymilo.ui.humanSkillName
+import org.aimlds.mymilo.ui.DataControlsScreen
+import org.aimlds.mymilo.ui.SourcesScreen
+import org.aimlds.mymilo.ui.egressCaption
 import org.aimlds.mymilo.ui.AboutScreen
 import org.aimlds.mymilo.ui.GuideScreen
 import org.aimlds.mymilo.ui.SkillsScreen
@@ -129,6 +132,8 @@ fun MiloRoot(vm: MainViewModel = viewModel()) {
             "skills" -> SkillsScreen(vm)
             "guide" -> GuideScreen(vm)
             "about" -> AboutScreen(vm)
+            "sources" -> SourcesScreen(vm)
+            "data" -> DataControlsScreen(vm)
             else -> ChatScreen(vm)
         }
     }
@@ -290,6 +295,11 @@ fun ChatScreen(vm: MainViewModel) {
     val attached by vm.attachedSkill.collectAsState()
     val catalog by vm.skillCatalog.collectAsState()
     var showAttach by remember { mutableStateOf(false) }
+    // Sources & Vault: the brain picker for this chat.
+    val brain by vm.currentBrain.collectAsState()
+    val brainSources by vm.sourcesList.collectAsState()
+    val brainTokens by vm.tokenRows.collectAsState()
+    var showBrain by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -580,6 +590,92 @@ fun ChatScreen(vm: MainViewModel) {
         }
     }
 
+    // Sources & Vault: pick who answers this chat. Every option
+    // says where the words go — the egress law at the point of
+    // choice, not in a footnote.
+    if (showBrain) {
+        var alsoDefault by remember { mutableStateOf(false) }
+        ModalBottomSheet(onDismissRequest = { showBrain = false }) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    "Who answers this chat?",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                @Composable
+                fun brainRow(
+                    value: String, name: String, caption: String,
+                    enabled: Boolean = true,
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().clickable(enabled = enabled) {
+                            vm.setBrain(value, alsoDefault)
+                            showBrain = false
+                        }.padding(vertical = 10.dp)
+                    ) {
+                        Text(
+                            (if (brain == value) "● " else "○ ") + name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (enabled) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                        Text(
+                            caption,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                        )
+                    }
+                }
+                brainRow(
+                    "phone", "This phone",
+                    "On-device tools only. Nothing leaves the phone.",
+                )
+                brainRow(
+                    "aetheris", "Aetheris",
+                    "Your own server. Stays on your systems.",
+                )
+                brainSources.filter { it.kind != "aetheris" }
+                    .forEach { src ->
+                        val hasKey = brainTokens.any {
+                            it.sourceId == src.id
+                        }
+                        brainRow(
+                            "src:${src.id}", src.name,
+                            if (hasKey) {
+                                "Your key · ${src.model} — " +
+                                    egressCaption(src)
+                            } else {
+                                "No key saved yet — add one in " +
+                                    "Sources & keys."
+                            },
+                            enabled = hasKey,
+                        )
+                    }
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        alsoDefault = !alsoDefault
+                    }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (alsoDefault) "☑ " else "☐ ",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        "Also use for new chats",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+            }
+        }
+    }
+
     // Auto-update prompt.
     val update by vm.updateInfo.collectAsState()
     var dismissedUpdate by remember { mutableStateOf(-1) }
@@ -658,6 +754,20 @@ fun ChatScreen(vm: MainViewModel) {
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("About") }
+                    TextButton(
+                        onClick = {
+                            vm.showScreen("sources")
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Sources & keys") }
+                    TextButton(
+                        onClick = {
+                            vm.showScreen("data")
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Where your data goes") }
                     Spacer(Modifier.height(8.dp))
                     var threadQuery by remember { mutableStateOf("") }
                     OutlinedTextField(
@@ -1048,6 +1158,30 @@ fun ChatScreen(vm: MainViewModel) {
                             ),
                         )
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { showBrain = true }) {
+                            Text(
+                                "Brain: " + vm.brainName(brain) + " ▾",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        if (brain != "aetheris") {
+                            Text(
+                                if (brain == "phone") {
+                                    "nothing leaves the phone"
+                                } else {
+                                    "outside source — leaves your systems"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                            )
+                        }
+                    }
                     if (attached != null) {
                         Row(
                             modifier = Modifier.fillMaxWidth()
@@ -1255,7 +1389,9 @@ fun MessageRow(
         val originLabel = when (m.origin) {
             "local-tool" -> "on this phone"
             "local-model" -> "on-device model"
+            "phone" -> "on this phone"
             "server" -> "MyMilo server"
+            "source" -> "your key"
             "queued" -> "queued"
             else -> null
         }
