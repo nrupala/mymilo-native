@@ -7,3 +7,6 @@ app/build/
 gradle/wrapper/
 *.apk
 captures/
+
+# llama.cpp is cloned by CI at a pinned tag, never vendored.
+app/src/main/cpp/llama.cpp/

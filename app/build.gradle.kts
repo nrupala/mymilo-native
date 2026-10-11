@@ -17,7 +17,16 @@ plugins {
         val buildNumber = System.getenv("MYMILO_BUILD_NUMBER")?.toIntOrNull() ?: 0
         versionCode = 500 + buildNumber
         buildConfigField("int", "BUILD_NUMBER", "${500 + buildNumber}")
-        versionName = "0.12.0"
+        versionName = "0.13.0"
+        // On-device engine (v0.13.0): llama.cpp via JNI.
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+            }
+        }
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     // Release signing (v0.6.0): the keystore is provided by CI from
@@ -60,6 +69,12 @@ plugins {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 }
 

@@ -9,3 +9,7 @@
 
 # Retrofit / OkHttp / Room / Coroutines ship their own consumer rules;
 # the keeps above cover this app's reflective surface (Gson DTOs).
+
+# On-device engine (v0.13.0): the native library calls these
+# methods by their exact JNI names — renaming breaks the link.
+-keep class org.aimlds.mymilo.local.LocalEngine { *; }

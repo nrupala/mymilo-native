@@ -138,6 +138,36 @@ fun SourcesScreen(vm: MainViewModel) {
                 )
                 Spacer(Modifier.height(14.dp))
             }
+            // ── On this phone: local models (v0.13.0) ──
+            item {
+                val activeLocal by vm.activeLocalModel
+                    .collectAsState()
+                Text(
+                    "On this phone",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    if (activeLocal != null) {
+                        "${activeLocal!!.name} is downloaded " +
+                            "and answers as the “This phone” " +
+                            "brain — fully offline."
+                    } else {
+                        "No model downloaded yet. A model " +
+                            "that lives on your phone answers " +
+                            "with no network at all."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme
+                        .onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(
+                    onClick = { vm.showScreen("localmodels") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Models on this phone") }
+                Spacer(Modifier.height(14.dp))
+            }
             // ── Aetheris: source #1, the default brain ──
             item {
                 Text(

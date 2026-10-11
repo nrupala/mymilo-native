@@ -97,6 +97,20 @@ gradle wrapper --gradle-version 8.7   # once
   message, in the current chat.
 - Denser type scale across the app (DESIGN-SYSTEM.md).
 
+## v0.13.0 — A model that lives on your phone
+- **Models on this phone** (Sources & keys): your phone
+  is measured first — chip, memory, free space — and
+  every model carries its honest verdict for your phone:
+  runs well, works slower, or too big. The best fit is
+  starred. No downloading 2 GB to find out.
+- Five curated models (Qwen 2.5 and Llama 3.2, 0.5B–3B)
+  download once from the publishers' site, with progress,
+  cancel, and resume. Then they're yours: delete or swap
+  any time.
+- Chats set to **This phone** now answer with the model
+  you picked — fully offline, airplane-mode capable.
+  Powered by llama.cpp running on the phone itself.
+
 ## v0.12.0 — Milo acts on the phone
 - **Call, text, open apps — from chat.** "Call Natasha",
   "Text Sam saying I'll be late", "Open WhatsApp". Milo

@@ -74,6 +74,7 @@ import org.aimlds.mymilo.ui.MainViewModel
 import org.aimlds.mymilo.ui.humanSkillName
 import org.aimlds.mymilo.ui.DataControlsScreen
 import org.aimlds.mymilo.ui.SourcesScreen
+import org.aimlds.mymilo.ui.LocalModelsScreen
 import org.aimlds.mymilo.ui.AddSourceScreen
 import org.aimlds.mymilo.ui.egressCaption
 import org.aimlds.mymilo.ui.AboutScreen
@@ -136,6 +137,7 @@ fun MiloRoot(vm: MainViewModel = viewModel()) {
             "guide" -> GuideScreen(vm)
             "about" -> AboutScreen(vm)
             "sources" -> SourcesScreen(vm)
+            "localmodels" -> LocalModelsScreen(vm)
             "addsource" -> AddSourceScreen(vm)
             "data" -> DataControlsScreen(vm)
             else -> ChatScreen(vm)
@@ -498,6 +500,7 @@ fun ChatScreen(vm: MainViewModel) {
     val brain by vm.currentBrain.collectAsState()
     val brainSources by vm.sourcesList.collectAsState()
     val brainTokens by vm.tokenRows.collectAsState()
+    val activeLocalModel by vm.activeLocalModel.collectAsState()
     var showBrain by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -831,7 +834,13 @@ fun ChatScreen(vm: MainViewModel) {
                 }
                 brainRow(
                     "phone", "This phone",
-                    "On-device tools only. Nothing leaves the phone.",
+                    if (activeLocalModel != null) {
+                        "Runs ${activeLocalModel!!.name} on " +
+                            "your phone. Nothing leaves it."
+                    } else {
+                        "On-device tools only. Nothing " +
+                            "leaves the phone."
+                    },
                 )
                 brainRow(
                     "aetheris", "Aetheris",

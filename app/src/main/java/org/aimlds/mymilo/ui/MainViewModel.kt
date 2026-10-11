@@ -7,17 +7,23 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.aimlds.mymilo.MiloApp
 import org.aimlds.mymilo.data.MessageEntity
 import org.aimlds.mymilo.data.SessionEntity
 import org.aimlds.mymilo.data.SkillEntity
 import org.aimlds.mymilo.data.SourceEntity
 import org.aimlds.mymilo.data.SourceTokenEntity
+import org.aimlds.mymilo.local.LocalEngine
+import org.aimlds.mymilo.local.LocalModel
+import org.aimlds.mymilo.local.LocalModels
+import org.aimlds.mymilo.local.LocalPrompt
 import org.aimlds.mymilo.network.ChatMessageDto
 import org.aimlds.mymilo.network.ChatRequest
 import org.aimlds.mymilo.skills.SkillRepository
@@ -488,6 +494,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
+        refreshLocalModels()
         viewModelScope.launch {
             _skin.value = Skin.fromName(db.settings().get("skin"))
             _ttsEnabled.value = db.settings().get("tts_enabled") != "false"
@@ -844,14 +851,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         return@launch
                     }
                 }
+                // A model on the phone answers here — fully
+                // offline, nothing leaves the device.
+                val localModel = _activeLocalModel.value
+                if (localModel != null) {
+                    _status.value = "Thinking on your phone…"
+                    _thinking.value = true
+                    val reply = withContext(Dispatchers.Default) {
+                        val file = LocalModels.fileFor(
+                            getApplication(), localModel,
+                        )
+                        if (LocalEngine.ensureLoaded(file)) {
+                            val history = db.messages()
+                                .forSession(sid)
+                                .filter {
+                                    it.role == "user" ||
+                                        it.role == "assistant"
+                                }
+                                .takeLast(8)
+                                .map { it.role to it.content }
+                            LocalEngine.generate(
+                                LocalPrompt.format(
+                                    localModel, history,
+                                )
+                            )
+                        } else {
+                            ""
+                        }
+                    }
+                    _thinking.value = false
+                    _status.value = ""
+                    if (reply.isNotBlank()) {
+                        addAssistant(
+                            sid, reply.trim(), "local-model",
+                        )
+                        return@launch
+                    }
+                }
                 addAssistant(
                     sid,
                     "This chat is set to This phone only, so " +
                         "nothing was sent anywhere — and the " +
                         "on-device tools have no answer for that. " +
-                        "Pick Aetheris or one of your sources " +
-                        "above the message box to have a model " +
-                        "answer.",
+                        "Download a model for your phone in " +
+                        "Sources & keys → Models on this phone, " +
+                        "or pick Aetheris or one of your sources " +
+                        "above the message box.",
                     "phone",
                 )
                 return@launch
@@ -979,6 +1024,176 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         return sb.toString()
+    }
+
+    // ── Local models (v0.13.0) ──────────────────────────────
+    // A model that lives on the phone: measured against this
+    // phone, downloaded once, run entirely on-device.
+
+    data class ModelUiState(
+        val model: LocalModel,
+        val verdict: LocalModels.Verdict,
+        val downloaded: Boolean,
+        val isActive: Boolean,
+        val isBest: Boolean,
+    )
+
+    private val _deviceInfo =
+        MutableStateFlow<LocalModels.DeviceInfo?>(null)
+    val deviceInfo: StateFlow<LocalModels.DeviceInfo?> = _deviceInfo
+
+    private val _modelStates =
+        MutableStateFlow<List<ModelUiState>>(emptyList())
+    val modelStates: StateFlow<List<ModelUiState>> = _modelStates
+
+    /** Model id → percent downloaded (absent = not running). */
+    private val _downloads =
+        MutableStateFlow<Map<String, Int>>(emptyMap())
+    val downloads: StateFlow<Map<String, Int>> = _downloads
+
+    private val _downloadErrors =
+        MutableStateFlow<Map<String, String>>(emptyMap())
+    val downloadErrors: StateFlow<Map<String, String>> =
+        _downloadErrors
+
+    private val _activeLocalModel =
+        MutableStateFlow<LocalModel?>(null)
+    val activeLocalModel: StateFlow<LocalModel?> = _activeLocalModel
+
+    private val cancelledDownloads = mutableSetOf<String>()
+
+    fun refreshLocalModels() {
+        val ctx = getApplication<Application>()
+        val device = LocalModels.probe(ctx)
+        _deviceInfo.value = device
+        val best = LocalModels.bestFor(device)
+        viewModelScope.launch {
+            val activeId = db.settings().get("local_model_active")
+            val active = LocalModels.byId(activeId)
+                ?.takeIf { LocalModels.isDownloaded(ctx, it) }
+            _activeLocalModel.value = active
+            _modelStates.value = LocalModels.CATALOG.map { m ->
+                ModelUiState(
+                    model = m,
+                    verdict = LocalModels.verdict(m, device),
+                    downloaded = LocalModels.isDownloaded(ctx, m),
+                    isActive = active?.id == m.id,
+                    isBest = best?.id == m.id,
+                )
+            }
+        }
+    }
+
+    fun setActiveModel(model: LocalModel) {
+        viewModelScope.launch {
+            db.settings().put(
+                org.aimlds.mymilo.data.SettingEntity(
+                    "local_model_active", model.id,
+                )
+            )
+            LocalEngine.unload() // the next chat loads the new pick
+            refreshLocalModels()
+        }
+    }
+
+    fun deleteModel(model: LocalModel) {
+        val ctx = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (_activeLocalModel.value?.id == model.id) {
+                LocalEngine.unload()
+                db.settings().put(
+                    org.aimlds.mymilo.data.SettingEntity(
+                        "local_model_active", "",
+                    )
+                )
+                _activeLocalModel.value = null
+            }
+            LocalModels.fileFor(ctx, model).delete()
+            java.io.File(
+                LocalModels.modelsDir(ctx), model.fileName + ".part",
+            ).delete()
+            refreshLocalModels()
+        }
+    }
+
+    fun cancelDownload(model: LocalModel) {
+        cancelledDownloads.add(model.id)
+    }
+
+    fun downloadModel(model: LocalModel) {
+        if (_downloads.value.containsKey(model.id)) return
+        cancelledDownloads.remove(model.id)
+        _downloadErrors.value = _downloadErrors.value - model.id
+        _downloads.value = _downloads.value + (model.id to 0)
+        val ctx = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            val dir = LocalModels.modelsDir(ctx)
+            val part = java.io.File(dir, model.fileName + ".part")
+            val dest = LocalModels.fileFor(ctx, model)
+            try {
+                var existing = if (part.exists()) part.length() else 0L
+                val conn = (java.net.URL(model.url)
+                    .openConnection()
+                    as java.net.HttpURLConnection)
+                    .apply {
+                        instanceFollowRedirects = true
+                        connectTimeout = 30_000
+                        readTimeout = 60_000
+                        if (existing > 0) {
+                            setRequestProperty(
+                                "Range", "bytes=$existing-",
+                            )
+                        }
+                    }
+                val code = conn.responseCode
+                if (code != 200 && code != 206) {
+                    throw java.io.IOException("HTTP $code")
+                }
+                // 206 = the range was honored; 200 = full
+                // restart (the part file starts over).
+                val append = code == 206 && existing > 0
+                if (!append) existing = 0
+                conn.inputStream.use { input ->
+                    java.io.FileOutputStream(part, append).use { out ->
+                        val buf = ByteArray(256 * 1024)
+                        var done = existing
+                        while (true) {
+                            if (model.id in cancelledDownloads) {
+                                _downloads.value =
+                                    _downloads.value - model.id
+                                return@launch
+                            }
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            done += n
+                            val pct = (done * 100 /
+                                model.sizeBytes).toInt()
+                            if (_downloads.value[model.id] != pct) {
+                                _downloads.value =
+                                    _downloads.value +
+                                    (model.id to pct)
+                            }
+                        }
+                    }
+                }
+                if (part.length() == model.sizeBytes) {
+                    part.renameTo(dest)
+                    _downloads.value = _downloads.value - model.id
+                    refreshLocalModels()
+                } else {
+                    throw java.io.IOException("incomplete")
+                }
+            } catch (e: Exception) {
+                _downloads.value = _downloads.value - model.id
+                _downloadErrors.value = _downloadErrors.value +
+                    (model.id to
+                        "Download didn't finish — check your " +
+                        "connection and try again. What's " +
+                        "already downloaded is kept, so a " +
+                        "retry continues where it stopped.")
+            }
+        }
     }
 
     // ── Phone actions (v0.12.0) ─────────────────────────────
