@@ -1,5 +1,6 @@
 package org.aimlds.mymilo.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,7 +13,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,7 +39,10 @@ import org.aimlds.mymilo.data.SourceTokenEntity
  */
 
 /** Where a chat sent to this source actually goes, plainly. */
-fun egressCaption(source: SourceEntity): String = when (source.kind) {
+fun egressCaption(source: SourceEntity): String =
+    egressForKind(source.kind, source.baseUrl)
+
+fun egressForKind(kind: String, baseUrl: String): String = when (kind) {
     "aetheris" ->
         "Your own server. Chats sent here stay on your systems."
     "openrouter" ->
@@ -47,11 +53,37 @@ fun egressCaption(source: SourceEntity): String = when (source.kind) {
         "Chats sent here go to OpenCode Zen and the company " +
             "behind the model — they leave your systems. The " +
             "provider's terms apply."
+    "anthropic" ->
+        "Chats sent here go to Anthropic — they leave your " +
+            "systems. Anthropic's terms apply."
+    "openai", "codex" ->
+        "Chats sent here go to OpenAI — they leave your " +
+            "systems. OpenAI's terms apply."
+    "google" ->
+        "Chats sent here go to Google — they leave your " +
+            "systems. On Gemini's free tier, Google may use " +
+            "what you send to improve its products."
+    "xai" ->
+        "Chats sent here go to xAI — they leave your systems. " +
+            "xAI's terms apply."
+    "mistral" ->
+        "Chats sent here go to Mistral AI — they leave your " +
+            "systems. Mistral's terms apply."
+    "deepseek" ->
+        "Chats sent here go to DeepSeek — they leave your " +
+            "systems. DeepSeek's terms apply."
+    "cloudflare" ->
+        "Chats sent here run on your own Cloudflare account " +
+            "(Workers AI) — they leave this phone, and usage " +
+            "counts against your Cloudflare plan."
+    "copilot" ->
+        "Chats sent here go to GitHub (Microsoft) — they " +
+            "leave your systems. GitHub's terms apply."
     else -> {
         val host = try {
-            java.net.URI(source.baseUrl).host ?: source.baseUrl
+            java.net.URI(baseUrl).host ?: baseUrl
         } catch (e: Exception) {
-            source.baseUrl
+            baseUrl
         }
         "Chats sent here go to $host — they leave your systems, " +
             "unless that address is one of your own."
@@ -62,6 +94,15 @@ private fun kindLabel(kind: String): String = when (kind) {
     "openrouter" -> "OpenRouter"
     "opencode" -> "OpenCode Zen"
     "aetheris" -> "Your server"
+    "anthropic" -> "Anthropic"
+    "openai" -> "OpenAI"
+    "codex" -> "Codex (OpenAI)"
+    "google" -> "Google Gemini"
+    "xai" -> "xAI"
+    "mistral" -> "Mistral"
+    "deepseek" -> "DeepSeek"
+    "cloudflare" -> "Cloudflare Workers AI"
+    "copilot" -> "GitHub Copilot"
     else -> "Custom address"
 }
 
@@ -76,7 +117,6 @@ fun SourcesScreen(vm: MainViewModel) {
     var addKeyFor by remember { mutableStateOf<SourceEntity?>(null) }
     var replaceEntry by remember { mutableStateOf<SourceTokenEntity?>(null) }
     var editSource by remember { mutableStateOf<SourceEntity?>(null) }
-    var addKind by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<SourceEntity?>(null) }
     var replaceAetheris by remember { mutableStateOf(false) }
     var removeAetheris by remember { mutableStateOf(false) }
@@ -210,30 +250,14 @@ fun SourcesScreen(vm: MainViewModel) {
                     ) { Text("Add a key") }
                 }
             }
-            // ── Add a source ──
+            // ── Add a source: its own draw-down of provider cards ──
             item {
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    "Add a source",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(6.dp))
-                OutlinedButton(
-                    onClick = { addKind = "openrouter" },
+                Button(
+                    onClick = { vm.showScreen("addsource") },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("OpenRouter") }
-                Spacer(Modifier.height(6.dp))
-                OutlinedButton(
-                    onClick = { addKind = "opencode" },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("OpenCode Zen") }
-                Spacer(Modifier.height(6.dp))
-                OutlinedButton(
-                    onClick = { addKind = "custom" },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("A custom address") }
-                Spacer(Modifier.height(14.dp))
+                ) { Text("Add a source") }
+                Spacer(Modifier.height(10.dp))
                 TextButton(
                     onClick = { vm.showScreen("data") },
                     modifier = Modifier.fillMaxWidth(),
@@ -278,27 +302,6 @@ fun SourcesScreen(vm: MainViewModel) {
             onSave = { updated ->
                 vm.saveSource(updated)
                 editSource = null
-            },
-        )
-    }
-    addKind?.let { kind ->
-        SourceEditDialog(
-            source = when (kind) {
-                "openrouter" -> SourceEntity(
-                    "", "OpenRouter", "openrouter",
-                    "https://openrouter.ai/api/v1",
-                    "deepseek/deepseek-chat", 0,
-                )
-                "opencode" -> SourceEntity(
-                    "", "OpenCode Zen", "opencode",
-                    "https://opencode.ai/zen/v1", "big-pickle", 0,
-                )
-                else -> SourceEntity("", "", "custom", "https://", "", 0)
-            },
-            onDismiss = { addKind = null },
-            onSave = { created ->
-                vm.addSource(created.name, created.kind, created.baseUrl, created.model)
-                addKind = null
             },
         )
     }
@@ -532,5 +535,121 @@ fun DataControlsScreen(vm: MainViewModel) {
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+}
+
+
+/**
+ * Add a source — the provider cards (v0.11.0). Its own
+ * screen (the draw-down) so the list can grow: pick a card,
+ * confirm the details, add your key. Every card says, in
+ * plain words, where chats sent there go.
+ */
+@Composable
+fun AddSourceScreen(vm: MainViewModel) {
+    var picked by remember { mutableStateOf<ProviderPreset?>(null) }
+    var custom by remember { mutableStateOf(false) }
+
+    SubScreen(
+        title = "Add a source",
+        subtitle = "Pick a provider — then it's just your key",
+        vm = vm,
+    ) {
+        LazyColumn {
+            items(PROVIDER_PRESETS) { preset ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { picked = preset },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Column(
+                        Modifier.padding(
+                            horizontal = 14.dp, vertical = 12.dp,
+                        ),
+                    ) {
+                        Text(
+                            preset.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            preset.blurb,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            egressForKind(preset.kind, preset.baseUrl),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme
+                                .colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { custom = true },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Column(
+                        Modifier.padding(
+                            horizontal = 14.dp, vertical = 12.dp,
+                        ),
+                    ) {
+                        Text(
+                            "A custom address",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            "Any service that speaks the standard " +
+                                "chat format.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+
+    picked?.let { preset ->
+        SourceEditDialog(
+            source = SourceEntity(
+                "", preset.name, preset.kind,
+                preset.baseUrl, preset.model, 0,
+            ),
+            onDismiss = { picked = null },
+            onSave = { created ->
+                vm.addSource(
+                    created.name, created.kind,
+                    created.baseUrl, created.model,
+                )
+                picked = null
+                vm.showScreen("sources")
+            },
+        )
+    }
+    if (custom) {
+        SourceEditDialog(
+            source = SourceEntity("", "", "custom", "https://", "", 0),
+            onDismiss = { custom = false },
+            onSave = { created ->
+                vm.addSource(
+                    created.name, created.kind,
+                    created.baseUrl, created.model,
+                )
+                custom = false
+                vm.showScreen("sources")
+            },
+        )
     }
 }

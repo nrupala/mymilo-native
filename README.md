@@ -97,6 +97,16 @@ gradle wrapper --gradle-version 8.7   # once
   message, in the current chat.
 - Denser type scale across the app (DESIGN-SYSTEM.md).
 
+## v0.11.0 — The provider cards
+- **Add a source is now its own draw-down of cards** — one
+  per provider, each pre-filled with its address and a
+  sensible starting model; you add only your key:
+  OpenRouter, OpenCode Zen, Anthropic, OpenAI, Codex,
+  Google Gemini, xAI (Grok), Mistral, DeepSeek, Cloudflare
+  Workers AI, GitHub Copilot, plus a custom address.
+- Every card states, in plain words, where chats sent to
+  that provider go — the same line the brain picker shows.
+
 ## v0.10.0 — Sources & Vault
 - **One vault for every key:** Android Keystore-encrypted,
   write-only — a saved key can never be shown again, only
