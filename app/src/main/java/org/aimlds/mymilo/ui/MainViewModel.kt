@@ -1,6 +1,8 @@
 package org.aimlds.mymilo.ui
 
+import android.Manifest
 import android.app.Application
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.lifecycle.AndroidViewModel
@@ -20,6 +22,7 @@ import org.aimlds.mymilo.network.ChatMessageDto
 import org.aimlds.mymilo.network.ChatRequest
 import org.aimlds.mymilo.skills.SkillRepository
 import org.aimlds.mymilo.tools.LocalTools
+import org.aimlds.mymilo.tools.PhoneActions
 import java.util.UUID
 
 /**
@@ -813,6 +816,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             db.messages().insert(userMsg)
             _messages.value = db.messages().forSession(sid)
 
+            // ── Phone actions (v0.12.0): verbs for the phone
+            // itself — call / text / open an app. They run on
+            // every brain: "call Natasha" is a phone task, not a
+            // model question. The confirmation card appears and
+            // this message goes no further until the user
+            // decides. A forced skill skips them: the user chose
+            // the skill on purpose.
+            if (forcedSkill == null) {
+                val parsedAction = PhoneActions.parse(trimmed)
+                if (parsedAction != null &&
+                    beginAction(sid, parsedAction)
+                ) {
+                    return@launch
+                }
+            }
+
             // ── Sources & Vault: a non-Aetheris brain answers
             // on its own path. The choice is the user's, made in
             // the open — never a silent reroute. ──
@@ -960,6 +979,313 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         return sb.toString()
+    }
+
+    // ── Phone actions (v0.12.0) ─────────────────────────────
+    // "call Natasha", "text Sam saying …", "open WhatsApp":
+    // Milo prepares, the user confirms on the card, the phone
+    // acts. Resolution is on-device; nothing is uploaded.
+
+    data class PendingAction(
+        val kind: String, // "call" | "text" | "open"
+        val target: String,
+        val body: String = "",
+        // contacts-permission | pick | confirm | notfound |
+        // call-permission | sms-permission
+        val stage: String,
+        val needsPermission: String? = null,
+        val resolvedName: String? = null,
+        val resolvedNumber: String? = null,
+        val appLabel: String? = null,
+        val appPackage: String? = null,
+        val candidates: List<PhoneActions.Candidate> = emptyList(),
+        val sessionId: String = "",
+    )
+
+    private val _pendingAction = MutableStateFlow<PendingAction?>(null)
+    val pendingAction: StateFlow<PendingAction?> = _pendingAction
+
+    private fun beginAction(
+        sid: String,
+        parsed: PhoneActions.Parsed,
+    ): Boolean {
+        val ctx = getApplication<Application>()
+        return when (parsed) {
+            is PhoneActions.Parsed.Open -> {
+                val found = PhoneActions.findApps(ctx, parsed.app)
+                if (found.isEmpty()) {
+                    false // not an app command after all — chat on
+                } else {
+                    _pendingAction.value = if (found.size == 1) {
+                        PendingAction(
+                            "open", parsed.app, stage = "confirm",
+                            appLabel = found[0].label,
+                            appPackage = found[0].pkg,
+                            sessionId = sid,
+                        )
+                    } else {
+                        PendingAction(
+                            "open", parsed.app, stage = "pick",
+                            candidates = found, sessionId = sid,
+                        )
+                    }
+                    true
+                }
+            }
+            is PhoneActions.Parsed.Call ->
+                beginPersonAction(sid, "call", parsed.target, "")
+            is PhoneActions.Parsed.Text ->
+                beginPersonAction(sid, "text", parsed.target, parsed.body)
+        }
+    }
+
+    private fun beginPersonAction(
+        sid: String,
+        kind: String,
+        target: String,
+        body: String,
+    ): Boolean {
+        val ctx = getApplication<Application>()
+        if (PhoneActions.looksLikeNumber(target)) {
+            _pendingAction.value = PendingAction(
+                kind, target, body, stage = "confirm",
+                resolvedNumber = PhoneActions.normalizeNumber(target),
+                sessionId = sid,
+            )
+            return true
+        }
+        if (!PhoneActions.hasPermission(
+                ctx, Manifest.permission.READ_CONTACTS,
+            )
+        ) {
+            _pendingAction.value = PendingAction(
+                kind, target, body, stage = "contacts-permission",
+                needsPermission = Manifest.permission.READ_CONTACTS,
+                sessionId = sid,
+            )
+            return true
+        }
+        resolvePersonTarget(sid, kind, target, body)
+        return true
+    }
+
+    private fun resolvePersonTarget(
+        sid: String,
+        kind: String,
+        target: String,
+        body: String,
+    ) {
+        val ctx = getApplication<Application>()
+        val found = PhoneActions.findContacts(ctx, target)
+        _pendingAction.value = when {
+            found.isEmpty() -> PendingAction(
+                kind, target, body, stage = "notfound", sessionId = sid,
+            )
+            found.size == 1 -> PendingAction(
+                kind, target, body, stage = "confirm",
+                resolvedName = found[0].label,
+                resolvedNumber = found[0].number,
+                sessionId = sid,
+            )
+            else -> PendingAction(
+                kind, target, body, stage = "pick",
+                candidates = found, sessionId = sid,
+            )
+        }
+    }
+
+    fun actionPick(candidate: PhoneActions.Candidate) {
+        val pa = _pendingAction.value ?: return
+        _pendingAction.value = if (pa.kind == "open") {
+            pa.copy(
+                stage = "confirm",
+                appLabel = candidate.label,
+                appPackage = candidate.pkg,
+                candidates = emptyList(),
+            )
+        } else {
+            pa.copy(
+                stage = "confirm",
+                resolvedName = candidate.label,
+                resolvedNumber = candidate.number,
+                candidates = emptyList(),
+            )
+        }
+    }
+
+    fun actionDismiss() {
+        _pendingAction.value = null
+    }
+
+    /** The confirm button: if the doing-permission is missing,
+     *  move to its permission card (which offers a fallback);
+     *  otherwise act now. */
+    fun actionConfirm(bodyOverride: String?) {
+        val pa = _pendingAction.value ?: return
+        val ctx = getApplication<Application>()
+        val action = if (bodyOverride != null) {
+            pa.copy(body = bodyOverride)
+        } else {
+            pa
+        }
+        when (action.kind) {
+            "call" -> {
+                if (PhoneActions.hasPermission(
+                        ctx, Manifest.permission.CALL_PHONE,
+                    )
+                ) {
+                    executeCall(action, direct = true)
+                } else {
+                    _pendingAction.value = action.copy(
+                        stage = "call-permission",
+                        needsPermission = Manifest.permission.CALL_PHONE,
+                    )
+                }
+            }
+            "text" -> {
+                if (PhoneActions.hasPermission(
+                        ctx, Manifest.permission.SEND_SMS,
+                    )
+                ) {
+                    executeText(action, direct = true)
+                } else {
+                    _pendingAction.value = action.copy(
+                        stage = "sms-permission",
+                        needsPermission = Manifest.permission.SEND_SMS,
+                    )
+                }
+            }
+            "open" -> executeOpen(action)
+        }
+    }
+
+    fun actionPermissionResult(granted: Boolean) {
+        val pa = _pendingAction.value ?: return
+        when (pa.stage) {
+            "contacts-permission" -> {
+                if (granted) {
+                    resolvePersonTarget(
+                        pa.sessionId, pa.kind, pa.target, pa.body,
+                    )
+                } else {
+                    _pendingAction.value = null
+                    viewModelScope.launch {
+                        addAssistant(
+                            pa.sessionId,
+                            "No problem. To call or text someone " +
+                                "by name I need your contacts " +
+                                "permission — names and numbers " +
+                                "stay on this phone and are never " +
+                                "uploaded. You can still say " +
+                                "“call” followed by a number.",
+                            "phone",
+                        )
+                    }
+                }
+            }
+            "call-permission" -> executeCall(pa, direct = granted)
+            "sms-permission" -> executeText(pa, direct = granted)
+        }
+    }
+
+    /** The fallback button on a permission card (dialer /
+     *  messaging app instead of direct action). */
+    fun actionFallback() {
+        val pa = _pendingAction.value ?: return
+        when (pa.stage) {
+            "call-permission" -> executeCall(pa, direct = false)
+            "sms-permission" -> executeText(pa, direct = false)
+            else -> _pendingAction.value = null
+        }
+    }
+
+    private fun startPhoneIntent(intent: Intent): Boolean {
+        return try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            getApplication<Application>().startActivity(intent)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun finishAction(pa: PendingAction, note: String) {
+        _pendingAction.value = null
+        viewModelScope.launch { addAssistant(pa.sessionId, note, "phone") }
+    }
+
+    private fun executeCall(pa: PendingAction, direct: Boolean) {
+        val number = pa.resolvedNumber ?: return
+        val who = pa.resolvedName ?: number
+        if (direct) {
+            val ok = startPhoneIntent(PhoneActions.callIntent(number))
+            finishAction(
+                pa,
+                if (ok) {
+                    "Calling $who now."
+                } else {
+                    "Couldn't place that call — the phone refused it."
+                },
+            )
+        } else {
+            val ok = startPhoneIntent(PhoneActions.dialIntent(number))
+            finishAction(
+                pa,
+                if (ok) {
+                    "Your dialer is open with $who's number " +
+                        "filled in — tap call there."
+                } else {
+                    "Couldn't open your dialer."
+                },
+            )
+        }
+    }
+
+    private fun executeText(pa: PendingAction, direct: Boolean) {
+        val number = pa.resolvedNumber ?: return
+        val who = pa.resolvedName ?: number
+        if (direct) {
+            val ok = PhoneActions.sendSms(
+                getApplication(), number, pa.body,
+            )
+            finishAction(
+                pa,
+                if (ok) {
+                    "Text sent to $who."
+                } else {
+                    "Couldn't send that text — the number or " +
+                        "your carrier refused it. Your message " +
+                        "was: “${pa.body}”"
+                },
+            )
+        } else {
+            val ok = startPhoneIntent(
+                PhoneActions.smsComposerIntent(number, pa.body),
+            )
+            finishAction(
+                pa,
+                if (ok) {
+                    "Your messaging app is open with the text " +
+                        "ready for $who — tap send there."
+                } else {
+                    "Couldn't open your messaging app."
+                },
+            )
+        }
+    }
+
+    private fun executeOpen(pa: PendingAction) {
+        val pkg = pa.appPackage ?: return
+        val intent = PhoneActions.launchIntent(getApplication(), pkg)
+        val ok = intent != null && startPhoneIntent(intent)
+        finishAction(
+            pa,
+            if (ok) {
+                "Opening ${pa.appLabel ?: pa.target}."
+            } else {
+                "Couldn't open ${pa.appLabel ?: pa.target}."
+            },
+        )
     }
 
     private suspend fun addAssistant(

@@ -2,7 +2,9 @@ package org.aimlds.mymilo
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -281,6 +283,201 @@ private fun SessionRow(
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+/**
+ * The phone-action confirmation card (v0.12.0). Milo
+ * prepares, the user taps. Permission asks happen here, in
+ * plain words, at the moment they're needed — each with a
+ * no-permission fallback where one exists.
+ */
+@Composable
+private fun PhoneActionDialog(
+    pa: MainViewModel.PendingAction,
+    vm: MainViewModel,
+) {
+    var bodyText by remember(pa.sessionId, pa.target) {
+        mutableStateOf(pa.body)
+    }
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> vm.actionPermissionResult(granted) }
+    val who = pa.resolvedName ?: pa.target
+
+    when (pa.stage) {
+        "contacts-permission" -> AlertDialog(
+            onDismissRequest = { vm.actionDismiss() },
+            title = { Text("May Milo see your contacts?") },
+            text = {
+                Text(
+                    "To ${if (pa.kind == "call") "call" else "text"} " +
+                        "$who by name, Milo needs permission to see " +
+                        "your contacts. Names and numbers stay on " +
+                        "this phone — nothing is uploaded."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    pa.needsPermission?.let { permLauncher.launch(it) }
+                }) { Text("Allow") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.actionPermissionResult(false) }) {
+                    Text("Not now")
+                }
+            },
+        )
+        "pick" -> AlertDialog(
+            onDismissRequest = { vm.actionDismiss() },
+            title = {
+                Text(
+                    if (pa.kind == "open") {
+                        "Which app did you mean?"
+                    } else {
+                        "Which ${pa.target}?"
+                    }
+                )
+            },
+            text = {
+                Column {
+                    pa.candidates.forEach { c ->
+                        TextButton(
+                            onClick = { vm.actionPick(c) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (c.number != null) {
+                                    "${c.label} — ${c.sub}"
+                                } else {
+                                    c.label
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { vm.actionDismiss() }) {
+                    Text("Cancel")
+                }
+            },
+        )
+        "notfound" -> AlertDialog(
+            onDismissRequest = { vm.actionDismiss() },
+            title = { Text("Not found") },
+            text = {
+                Text(
+                    "I couldn't find “${pa.target}” in your " +
+                        "contacts. Check the name, or say it with " +
+                        "a number instead — like “call 403 555 1234”."
+                )
+            },
+            confirmButton = {
+                Button(onClick = { vm.actionDismiss() }) { Text("OK") }
+            },
+        )
+        "call-permission" -> AlertDialog(
+            onDismissRequest = { vm.actionDismiss() },
+            title = { Text("May Milo place calls?") },
+            text = {
+                Text(
+                    "To call $who directly, Milo needs phone " +
+                        "permission. Or skip it — I'll open your " +
+                        "dialer with the number filled in, and " +
+                        "you tap call."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    pa.needsPermission?.let { permLauncher.launch(it) }
+                }) { Text("Allow") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.actionFallback() }) {
+                    Text("Use my dialer")
+                }
+            },
+        )
+        "sms-permission" -> AlertDialog(
+            onDismissRequest = { vm.actionDismiss() },
+            title = { Text("May Milo send texts?") },
+            text = {
+                Text(
+                    "To send the text to $who for you, Milo " +
+                        "needs SMS permission. Or skip it — I'll " +
+                        "open your messaging app with the text " +
+                        "ready, and you tap send."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    pa.needsPermission?.let { permLauncher.launch(it) }
+                }) { Text("Allow") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.actionFallback() }) {
+                    Text("Open messaging app")
+                }
+            },
+        )
+        else -> AlertDialog( // "confirm"
+            onDismissRequest = { vm.actionDismiss() },
+            title = {
+                Text(
+                    when (pa.kind) {
+                        "call" -> "Call $who?"
+                        "text" -> "Text $who?"
+                        else -> "Open ${pa.appLabel ?: pa.target}?"
+                    }
+                )
+            },
+            text = {
+                Column {
+                    when (pa.kind) {
+                        "call" -> Text(pa.resolvedNumber ?: "")
+                        "text" -> {
+                            if (pa.resolvedNumber != null) {
+                                Text(pa.resolvedNumber!!)
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            OutlinedTextField(
+                                value = bodyText,
+                                onValueChange = { bodyText = it },
+                                label = { Text("Message") },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 2,
+                            )
+                        }
+                        else -> Text("On this phone.")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        vm.actionConfirm(
+                            if (pa.kind == "text") bodyText else null
+                        )
+                    },
+                    enabled = pa.kind != "text" || bodyText.isNotBlank(),
+                ) {
+                    Text(
+                        when (pa.kind) {
+                            "call" -> "Call"
+                            "text" -> "Send text"
+                            else -> "Open"
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.actionDismiss() }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
 @Composable
 fun ChatScreen(vm: MainViewModel) {
     val sessions by vm.sessions.collectAsState()
@@ -677,6 +874,10 @@ fun ChatScreen(vm: MainViewModel) {
             }
         }
     }
+
+    // Phone actions (v0.12.0): the confirmation card.
+    val pendingAction by vm.pendingAction.collectAsState()
+    pendingAction?.let { pa -> PhoneActionDialog(pa, vm) }
 
     // Auto-update prompt.
     val update by vm.updateInfo.collectAsState()

@@ -97,6 +97,22 @@ gradle wrapper --gradle-version 8.7   # once
   message, in the current chat.
 - Denser type scale across the app (DESIGN-SYSTEM.md).
 
+## v0.12.0 — Milo acts on the phone
+- **Call, text, open apps — from chat.** "Call Natasha",
+  "Text Sam saying I'll be late", "Open WhatsApp". Milo
+  finds the person in your contacts (or the app on your
+  phone), shows you a confirmation card, and acts only
+  when you tap.
+- Permissions are asked in plain words, at the moment
+  they're needed — contacts to find people by name, phone
+  to place the call, SMS to send the text. Each ask has a
+  no-permission fallback: your dialer opens with the
+  number filled in, or your messaging app opens with the
+  text ready.
+- Names and numbers are looked up on the phone and never
+  uploaded. Actions work on every brain — they're phone
+  tasks, not model questions.
+
 ## v0.11.0 — The provider cards
 - **Add a source is now its own draw-down of cards** — one
   per provider, each pre-filled with its address and a
