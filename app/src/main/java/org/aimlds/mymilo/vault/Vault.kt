@@ -61,17 +61,19 @@ class Vault(context: Context) {
 
     /** Read a secret back (call-time only). Null when absent or
      *  when the vault can't unlock (e.g. key invalidated). */
-    fun get(name: String): String? = try {
-        val stored = prefs.getString(name, null) ?: return null
-        val packed = Base64.decode(stored, Base64.NO_WRAP)
-        if (packed.size <= GCM_IV_BYTES) return null
-        val iv = packed.copyOfRange(0, GCM_IV_BYTES)
-        val ct = packed.copyOfRange(GCM_IV_BYTES, packed.size)
-        val cipher = Cipher.getInstance(TRANSFORM)
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv))
-        String(cipher.doFinal(ct), Charsets.UTF_8)
-    } catch (e: Exception) {
-        null
+    fun get(name: String): String? {
+        return try {
+            val stored = prefs.getString(name, null) ?: return null
+            val packed = Base64.decode(stored, Base64.NO_WRAP)
+            if (packed.size <= GCM_IV_BYTES) return null
+            val iv = packed.copyOfRange(0, GCM_IV_BYTES)
+            val ct = packed.copyOfRange(GCM_IV_BYTES, packed.size)
+            val cipher = Cipher.getInstance(TRANSFORM)
+            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv))
+            String(cipher.doFinal(ct), Charsets.UTF_8)
+        } catch (e: Exception) {
+            null
+        }
     }
 
     fun contains(name: String): Boolean = prefs.contains(name)
