@@ -494,8 +494,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
-        refreshLocalModels()
         viewModelScope.launch {
+            // Local-model refresh runs inside this coroutine, NOT
+            // synchronously before it: refreshLocalModels() writes
+            // flows (_deviceInfo and friends) declared in the
+            // local-models section far below this block, and
+            // properties initialize in declaration order — calling
+            // it during construction touched them while still null
+            // and crashed every launch since build 21 (v0.14.4 fix).
+            refreshLocalModels()
             _skin.value = Skin.fromName(db.settings().get("skin"))
             _ttsEnabled.value = db.settings().get("tts_enabled") != "false"
             // v0.5.0: check for a newer build at most once a day.

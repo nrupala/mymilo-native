@@ -97,6 +97,18 @@ gradle wrapper --gradle-version 8.7   # once
   message, in the current chat.
 - Denser type scale across the app (DESIGN-SYSTEM.md).
 
+## v0.14.4 — The launch crash, named and fixed
+Build 34's crash trap caught it and the R8 mapping (now
+uploaded by CI for every build) named it exactly: the
+ViewModel's init block called refreshLocalModels() during
+construction, but that function writes state flows declared
+in the local-models section hundreds of lines below the
+init block — and properties initialize in declaration
+order, so every launch since build 21 wrote to a flow that
+did not exist yet. The refresh now runs as the first step
+of the init coroutine, after construction completes. No
+other behavior changes.
+
 ## v0.14.3 — Crash reporter
 - **The app now catches its own fatal errors.** After a
   launch crash reached a real phone as an unexplained

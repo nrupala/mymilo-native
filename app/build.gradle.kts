@@ -17,7 +17,7 @@ plugins {
         val buildNumber = System.getenv("MYMILO_BUILD_NUMBER")?.toIntOrNull() ?: 0
         versionCode = 500 + buildNumber
         buildConfigField("int", "BUILD_NUMBER", "${500 + buildNumber}")
-        versionName = "0.14.3"
+        versionName = "0.14.4"
         // On-device engine (v0.13.0): llama.cpp via JNI.
         externalNativeBuild {
             cmake {
