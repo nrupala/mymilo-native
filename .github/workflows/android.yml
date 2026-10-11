@@ -29,12 +29,13 @@ jobs:
 
       # On-device engine (v0.13.0): NDK + CMake for the
       # llama.cpp JNI build, and llama.cpp itself cloned at
-      # a pinned tag — never vendored into this repo.
-      - name: Setup Android SDK tools
-        uses: android-actions/setup-android@v3
-
+      # a pinned tag — never vendored into this repo. The
+      # runner image already carries the Android SDK, so
+      # sdkmanager is used directly.
       - name: Install NDK + CMake
-        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
 
       - name: Fetch llama.cpp (pinned b11541)
         run: git clone --depth 1 --branch b11541 https://github.com/ggml-org/llama.cpp.git app/src/main/cpp/llama.cpp
