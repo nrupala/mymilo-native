@@ -34,8 +34,9 @@ jobs:
       # sdkmanager is used directly.
       - name: Install NDK + CMake
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "ndk;27.2.12479018" "cmake;3.22.1"
 
       - name: Fetch llama.cpp (pinned b11541)
         run: git clone --depth 1 --branch b11541 https://github.com/ggml-org/llama.cpp.git app/src/main/cpp/llama.cpp
