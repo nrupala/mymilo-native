@@ -17,11 +17,13 @@ plugins {
         val buildNumber = System.getenv("MYMILO_BUILD_NUMBER")?.toIntOrNull() ?: 0
         versionCode = 500 + buildNumber
         buildConfigField("int", "BUILD_NUMBER", "${500 + buildNumber}")
-        versionName = "0.14.0"
+        versionName = "0.14.1"
         // On-device engine (v0.13.0): llama.cpp via JNI.
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
+                arguments +=
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
         }
         ndk {

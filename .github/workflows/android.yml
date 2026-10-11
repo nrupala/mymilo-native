@@ -61,6 +61,40 @@ jobs:
           MYMILO_KEY_ALIAS: mymilo
           MYMILO_KEY_PASSWORD: ${{ secrets.MYMILO_KEYSTORE_PASSWORD }}
 
+      # Ship-gate (v0.14.1): no native library may leave CI
+      # without 16 KB ELF alignment — phones with 16 KB
+      # memory pages (Galaxy S25 line and newer) refuse
+      # such APKs at install time. This check makes the
+      # v0.13.0 install failure impossible to ship again.
+      - name: Verify 16 KB native alignment
+        run: |
+          python3 - << 'PYEOF'
+          import struct, sys, zipfile
+          z = zipfile.ZipFile(
+              "app/build/outputs/apk/release/app-release.apk")
+          bad = []
+          for name in z.namelist():
+              if not (name.startswith("lib/")
+                      and name.endswith(".so")):
+                  continue
+              d = z.read(name)
+              assert d[:4] == b"\x7fELF", name
+              phoff = struct.unpack_from("<Q", d, 0x20)[0]
+              phentsize = struct.unpack_from("<H", d, 0x36)[0]
+              phnum = struct.unpack_from("<H", d, 0x38)[0]
+              for i in range(phnum):
+                  off = phoff + i * phentsize
+                  if struct.unpack_from("<I", d, off)[0] == 1:
+                      align = struct.unpack_from(
+                          "<Q", d, off + 0x30)[0]
+                      if align < 16384:
+                          bad.append((name, align))
+          if bad:
+              print("NOT 16 KB aligned:", bad)
+              sys.exit(1)
+          print("16 KB alignment verified for all native libs")
+          PYEOF
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
