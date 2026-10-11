@@ -24,6 +24,12 @@ plugins {
                 cppFlags += "-std=c++17"
                 arguments +=
                     "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+                // No OpenMP: the NDK's prebuilt libomp.so is
+                // 4 KB-aligned and can't be re-linked, which
+                // fails the 16 KB ship-gate and the install
+                // on newer phones. ggml's own threading
+                // carries the engine without it.
+                arguments += "-DGGML_OPENMP=OFF"
             }
         }
         ndk {

@@ -102,9 +102,12 @@ gradle wrapper --gradle-version 8.7   # once
   16 KB memory pages (Galaxy S25 line and newer).** The
   on-device engine library was linked with the older
   4 KB alignment; those phones reject such apps at
-  install time. The library is now 16 KB-aligned, and
-  CI verifies the alignment inside every APK before it
-  can ship — the failure can't recur silently.
+  install time. The library is now 16 KB-aligned, the
+  bundled OpenMP runtime (a prebuilt that could not be
+  re-aligned) is removed — ggml's own threading carries
+  the engine — and CI verifies the alignment inside
+  every APK before it can ship, so the failure can't
+  recur silently.
 
 ## v0.14.0 — Yours first
 - The Add-a-source list now leads with a **Yours**
