@@ -97,6 +97,20 @@ gradle wrapper --gradle-version 8.7   # once
   message, in the current chat.
 - Denser type scale across the app (DESIGN-SYSTEM.md).
 
+## v0.14.2 — Installs clean: two permissions removed
+- **Fixed (round two): Android's safety check (Play
+  Protect) was blocking the install itself.** v0.14.1
+  fixed the library alignment, but the app still
+  carried two permissions that Android treats as
+  dangerous for apps installed from a file: sending
+  texts directly, and installing packages (the old
+  in-app self-updater). Both are gone.
+- Texting now always opens your messaging app with
+  the message written — your tap sends it. Calling
+  directly is unchanged.
+- The in-app updater is retired; updates arrive
+  through the Play Store.
+
 ## v0.14.1 — Install fix for newer phones
 - **Fixed: the app refused to install on phones with
   16 KB memory pages (Galaxy S25 line and newer).** The

@@ -398,28 +398,6 @@ private fun PhoneActionDialog(
                 }
             },
         )
-        "sms-permission" -> AlertDialog(
-            onDismissRequest = { vm.actionDismiss() },
-            title = { Text("May Milo send texts?") },
-            text = {
-                Text(
-                    "To send the text to $who for you, Milo " +
-                        "needs SMS permission. Or skip it — I'll " +
-                        "open your messaging app with the text " +
-                        "ready, and you tap send."
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    pa.needsPermission?.let { permLauncher.launch(it) }
-                }) { Text("Allow") }
-            },
-            dismissButton = {
-                TextButton(onClick = { vm.actionFallback() }) {
-                    Text("Open messaging app")
-                }
-            },
-        )
         else -> AlertDialog( // "confirm"
             onDismissRequest = { vm.actionDismiss() },
             title = {
@@ -464,7 +442,7 @@ private fun PhoneActionDialog(
                     Text(
                         when (pa.kind) {
                             "call" -> "Call"
-                            "text" -> "Send text"
+                            "text" -> "Open in Messages"
                             else -> "Open"
                         }
                     )

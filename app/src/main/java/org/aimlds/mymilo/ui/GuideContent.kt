@@ -120,10 +120,10 @@ val FAQS = listOf(
         "Open Skills to browse them all, read what each one " +
         "does, and run any of them on purpose.",
     "How do updates arrive?" to
-        "The app checks quietly and tells you in the drawer " +
-        "under Updates. Download, then Install — Android asks " +
-        "for your tap on the installer; that's the platform's " +
-        "rule for apps outside the Play Store.",
+        "Through the Play Store, like any other app. Milo " +
+        "no longer updates itself inside the app - Android's " +
+        "safety checks block apps that try, so that " +
+        "machinery is retired.", 
     "Who else can use my MyMilo?" to
         "Only accounts you allow and devices you connect. The " +
         "Devices page on the website shows every connected " +

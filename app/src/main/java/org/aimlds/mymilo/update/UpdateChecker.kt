@@ -37,38 +37,13 @@ object UpdateChecker {
     fun currentReleaseNumber(): Int =
         org.aimlds.mymilo.BuildConfig.BUILD_NUMBER - 500
 
-    suspend fun check(): UpdateInfo? = withContext(Dispatchers.IO) {
-        val client = OkHttpClient()
-        val req = Request.Builder()
-            .url(LATEST_URL)
-            .header("User-Agent", "MyMilo-App")
-            .header("Accept", "application/vnd.github+json")
-            .build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return@withContext null
-            val body = resp.body?.string() ?: return@withContext null
-            val json = JSONObject(body)
-            val tag = json.optString("tag_name") // build-N
-            val n = tag.removePrefix("build-").toIntOrNull()
-                ?: return@withContext null
-            if (n <= currentReleaseNumber()) return@withContext null
-            val assets = json.optJSONArray("assets") ?: return@withContext null
-            var apkUrl: String? = null
-            for (i in 0 until assets.length()) {
-                val a = assets.getJSONObject(i)
-                if (a.optString("name") == "app-release.apk") {
-                    apkUrl = a.optString("browser_download_url")
-                    break
-                }
-            }
-            UpdateInfo(
-                releaseNumber = n,
-                apkUrl = apkUrl ?: return@withContext null,
-                releaseUrl = json.optString("html_url"),
-                notes = json.optString("body").take(500),
-            )
-        }
-    }
+    // Retired in v0.14.2: the self-updater needed the
+    // install-packages permission, and Android's safety
+    // check blocks file-installed apps that carry it.
+    // Updates arrive through the Play Store now. This
+    // check stays as a quiet no-op so the drawer simply
+    // never offers an in-app update.
+    suspend fun check(): UpdateInfo? = null
 
     suspend fun download(context: Context, info: UpdateInfo): File? =
         withContext(Dispatchers.IO) {
@@ -108,6 +83,8 @@ object UpdateChecker {
      *  Returns false when the installer could not be opened, so the
      *  caller can say so in plain words instead of crashing. */
     fun install(context: Context, file: File): Boolean {
+        return false // retired with check() in v0.14.2
+        @Suppress("UNREACHABLE_CODE")
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 !context.packageManager.canRequestPackageInstalls()

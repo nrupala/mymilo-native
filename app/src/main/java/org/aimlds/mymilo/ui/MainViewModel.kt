@@ -1206,7 +1206,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val target: String,
         val body: String = "",
         // contacts-permission | pick | confirm | notfound |
-        // call-permission | sms-permission
+        // call-permission
         val stage: String,
         val needsPermission: String? = null,
         val resolvedName: String? = null,
@@ -1357,19 +1357,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
             }
-            "text" -> {
-                if (PhoneActions.hasPermission(
-                        ctx, Manifest.permission.SEND_SMS,
-                    )
-                ) {
-                    executeText(action, direct = true)
-                } else {
-                    _pendingAction.value = action.copy(
-                        stage = "sms-permission",
-                        needsPermission = Manifest.permission.SEND_SMS,
-                    )
-                }
-            }
+            "text" -> executeText(action)
             "open" -> executeOpen(action)
         }
     }
@@ -1399,7 +1387,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             "call-permission" -> executeCall(pa, direct = granted)
-            "sms-permission" -> executeText(pa, direct = granted)
         }
     }
 
@@ -1409,7 +1396,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val pa = _pendingAction.value ?: return
         when (pa.stage) {
             "call-permission" -> executeCall(pa, direct = false)
-            "sms-permission" -> executeText(pa, direct = false)
             else -> _pendingAction.value = null
         }
     }
@@ -1456,39 +1442,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun executeText(pa: PendingAction, direct: Boolean) {
+    private fun executeText(pa: PendingAction) {
+        // Composer only (v0.14.2): Milo never sends a text
+        // itself. Direct sending needed the text-sending
+        // permission, and Android's safety check blocks
+        // file-installed apps that carry it - the same
+        // wall Play policy puts up. Your messaging app
+        // opens with the text ready; your tap sends it.
         val number = pa.resolvedNumber ?: return
         val who = pa.resolvedName ?: number
-        if (direct) {
-            val ok = PhoneActions.sendSms(
-                getApplication(), number, pa.body,
-            )
-            finishAction(
-                pa,
-                if (ok) {
-                    "Text sent to $who."
-                } else {
-                    "Couldn't send that text — the number or " +
-                        "your carrier refused it. Your message " +
-                        "was: “${pa.body}”"
-                },
-            )
-        } else {
-            val ok = startPhoneIntent(
-                PhoneActions.smsComposerIntent(number, pa.body),
-            )
-            finishAction(
-                pa,
-                if (ok) {
-                    "Your messaging app is open with the text " +
-                        "ready for $who — tap send there."
-                } else {
-                    "Couldn't open your messaging app."
-                },
-            )
-        }
+        val ok = startPhoneIntent(
+            PhoneActions.smsComposerIntent(number, pa.body),
+        )
+        finishAction(
+            pa,
+            if (ok) {
+                "Your messaging app is open with the text " +
+                    "ready for $who - tap send there."
+            } else {
+                "Couldn't open your messaging app."
+            },
+        )
     }
-
     private fun executeOpen(pa: PendingAction) {
         val pkg = pa.appPackage ?: return
         val intent = PhoneActions.launchIntent(getApplication(), pkg)

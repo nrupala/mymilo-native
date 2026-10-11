@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
-import android.telephony.SmsManager
 import androidx.core.content.ContextCompat
 
 /**
@@ -189,24 +188,4 @@ object PhoneActions {
 
     fun launchIntent(ctx: Context, pkg: String): Intent? =
         ctx.packageManager.getLaunchIntentForPackage(pkg)
-
-    fun sendSms(ctx: Context, number: String, body: String): Boolean {
-        return try {
-            val sm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                ctx.getSystemService(SmsManager::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                SmsManager.getDefault()
-            } ?: return false
-            val parts = sm.divideMessage(body)
-            if (parts.size > 1) {
-                sm.sendMultipartTextMessage(number, null, parts, null, null)
-            } else {
-                sm.sendTextMessage(number, null, body, null, null)
-            }
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
 }
